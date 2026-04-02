@@ -24,13 +24,15 @@
  * Excel budget endpoint (/excel-budget):
  *   Reads the XLSX file at POWERBI_EXCEL_PATH and returns all sheets as
  *   JSON. The file path stays on the host; containers only see parsed data.
+ *
+ * Email endpoint (/send-email):
+ *   Sends email via Microsoft Graph API using the same service principal
+ *   credentials as Power BI. No SMTP required.
  */
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
 import fs from 'fs';
-
-import nodemailer from 'nodemailer';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
@@ -235,10 +237,6 @@ export function startCredentialProxy(
     'POWERBI_CLIENT_SECRET',
     'POWERBI_EXCEL_PATH',
     'HUBSPOT_ACCESS_TOKEN',
-    'SMTP_HOST',
-    'SMTP_PORT',
-    'SMTP_USER',
-    'SMTP_PASS',
     'ALERT_EMAIL_FROM',
     'ALERT_EMAIL_TO',
   ]);
@@ -267,22 +265,18 @@ export function startCredentialProxy(
     logger.info('HubSpot token endpoint enabled (private app)');
   }
 
-  const smtpConfigured = !!(
-    secrets.SMTP_HOST &&
-    secrets.SMTP_USER &&
-    secrets.SMTP_PASS &&
+  const graphEmailConfigured = !!(
+    secrets.POWERBI_TENANT_ID &&
+    secrets.POWERBI_CLIENT_ID &&
+    secrets.POWERBI_CLIENT_SECRET &&
+    secrets.ALERT_EMAIL_FROM &&
     secrets.ALERT_EMAIL_TO
   );
-  const smtpTransport = smtpConfigured
-    ? nodemailer.createTransport({
-        host: secrets.SMTP_HOST,
-        port: parseInt(secrets.SMTP_PORT || '587', 10),
-        secure: (secrets.SMTP_PORT || '587') === '465',
-        auth: { user: secrets.SMTP_USER, pass: secrets.SMTP_PASS },
-      })
-    : null;
-  if (smtpConfigured) {
-    logger.info({ host: secrets.SMTP_HOST, user: secrets.SMTP_USER }, 'Email endpoint enabled');
+  if (graphEmailConfigured) {
+    logger.info(
+      { from: secrets.ALERT_EMAIL_FROM },
+      'Email endpoint enabled (Microsoft Graph)',
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -347,13 +341,16 @@ export function startCredentialProxy(
             return;
           }
 
-          // ── Email endpoint ──────────────────────────────────────────────
+          // ── Email endpoint (Microsoft Graph) ────────────────────────────
           if (req.url === '/send-email' && req.method === 'POST') {
-            if (!smtpTransport) {
+            if (!graphEmailConfigured) {
               res.writeHead(503, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({
-                error: 'Email not configured. Add SMTP_HOST, SMTP_USER, SMTP_PASS, ALERT_EMAIL_TO to .env',
-              }));
+              res.end(
+                JSON.stringify({
+                  error:
+                    'Email not configured. Ensure POWERBI_TENANT_ID, POWERBI_CLIENT_ID, POWERBI_CLIENT_SECRET, ALERT_EMAIL_FROM, ALERT_EMAIL_TO are set in .env',
+                }),
+              );
               return;
             }
             try {
@@ -363,14 +360,103 @@ export function startCredentialProxy(
                 to?: string;
               };
               const to = payload.to || secrets.ALERT_EMAIL_TO!;
-              const from = secrets.ALERT_EMAIL_FROM || secrets.SMTP_USER!;
-              await smtpTransport.sendMail({
-                from,
-                to,
-                subject: payload.subject || '(no subject)',
-                text: payload.body || '',
+              const from = secrets.ALERT_EMAIL_FROM!;
+
+              // Get Graph token (reuses Power BI service principal credentials)
+              const graphToken = await (async () => {
+                const gbody = new URLSearchParams({
+                  grant_type: 'client_credentials',
+                  client_id: secrets.POWERBI_CLIENT_ID!,
+                  client_secret: secrets.POWERBI_CLIENT_SECRET!,
+                  scope: 'https://graph.microsoft.com/.default',
+                }).toString();
+                return new Promise<string>((resolve, reject) => {
+                  const tokenReq = httpsRequest(
+                    {
+                      hostname: 'login.microsoftonline.com',
+                      port: 443,
+                      path: `/${secrets.POWERBI_TENANT_ID}/oauth2/v2.0/token`,
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Length': Buffer.byteLength(gbody),
+                      },
+                    },
+                    (r) => {
+                      const c: Buffer[] = [];
+                      r.on('data', (d: Buffer) => c.push(d));
+                      r.on('end', () => {
+                        const d = JSON.parse(
+                          Buffer.concat(c).toString(),
+                        ) as {
+                          access_token?: string;
+                          error_description?: string;
+                        };
+                        if (!d.access_token)
+                          reject(
+                            new Error(d.error_description || 'No token'),
+                          );
+                        else resolve(d.access_token);
+                      });
+                    },
+                  );
+                  tokenReq.on('error', reject);
+                  tokenReq.write(gbody);
+                  tokenReq.end();
+                });
+              })();
+
+              // Send via Graph API
+              const mailPayload = JSON.stringify({
+                message: {
+                  subject: payload.subject || '(no subject)',
+                  body: { contentType: 'Text', content: payload.body || '' },
+                  toRecipients: [{ emailAddress: { address: to } }],
+                },
+                saveToSentItems: true,
               });
-              logger.info({ to, subject: payload.subject }, 'Email sent');
+              await new Promise<void>((resolve, reject) => {
+                const sendReq = httpsRequest(
+                  {
+                    hostname: 'graph.microsoft.com',
+                    port: 443,
+                    path: `/v1.0/users/${from}/sendMail`,
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${graphToken}`,
+                      'Content-Type': 'application/json',
+                      'Content-Length': Buffer.byteLength(mailPayload),
+                    },
+                  },
+                  (r) => {
+                    const c: Buffer[] = [];
+                    r.on('data', (d: Buffer) => c.push(d));
+                    r.on('end', () => {
+                      if (
+                        r.statusCode &&
+                        r.statusCode >= 200 &&
+                        r.statusCode < 300
+                      ) {
+                        resolve();
+                      } else {
+                        reject(
+                          new Error(
+                            `Graph sendMail ${r.statusCode}: ${Buffer.concat(c).toString()}`,
+                          ),
+                        );
+                      }
+                    });
+                  },
+                );
+                sendReq.on('error', reject);
+                sendReq.write(mailPayload);
+                sendReq.end();
+              });
+
+              logger.info(
+                { to, subject: payload.subject },
+                'Email sent via Microsoft Graph',
+              );
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true }));
             } catch (err) {
@@ -381,7 +467,7 @@ export function startCredentialProxy(
             return;
           }
 
-          // ── Anthropic API proxy (existing logic) ─────────────────────────
+          // ── Anthropic API proxy ──────────────────────────────────────────
           const headers: Record<
             string,
             string | number | string[] | undefined
@@ -397,14 +483,9 @@ export function startCredentialProxy(
           delete headers['transfer-encoding'];
 
           if (authMode === 'api-key') {
-            // API key mode: inject x-api-key on every request
             delete headers['x-api-key'];
             headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
           } else {
-            // OAuth mode: replace placeholder Bearer token with the real one
-            // only when the container actually sends an Authorization header
-            // (exchange request + auth probes). Post-exchange requests use
-            // x-api-key only, so they pass through without token injection.
             if (headers['authorization']) {
               delete headers['authorization'];
               if (oauthToken) {
