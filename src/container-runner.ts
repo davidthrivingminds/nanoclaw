@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  SKILLS_PATH,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -200,6 +201,15 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Agent SKILL.md files directory (OneDrive or local) — mounted read-only for all groups
+  if (SKILLS_PATH && fs.existsSync(SKILLS_PATH)) {
+    mounts.push({
+      hostPath: SKILLS_PATH,
+      containerPath: '/workspace/extra/skills',
+      readonly: true,
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {

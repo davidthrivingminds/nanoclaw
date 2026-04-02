@@ -385,6 +385,20 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
+  // Load agent SKILL.md if a .skill-file marker exists in the group folder
+  let skillContent: string | undefined;
+  const skillFileMarker = '/workspace/group/.skill-file';
+  if (fs.existsSync(skillFileMarker)) {
+    const skillFileName = fs.readFileSync(skillFileMarker, 'utf-8').trim();
+    const skillFilePath = `/workspace/extra/skills/${skillFileName}`;
+    if (fs.existsSync(skillFilePath)) {
+      skillContent = fs.readFileSync(skillFilePath, 'utf-8');
+      log(`Loaded skill file: ${skillFileName}`);
+    } else {
+      log(`Skill file not found: ${skillFilePath}`);
+    }
+  }
+
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
   let globalClaudeMd: string | undefined;
@@ -415,8 +429,12 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
+      systemPrompt: (skillContent || globalClaudeMd)
+        ? {
+            type: 'preset' as const,
+            preset: 'claude_code' as const,
+            append: [skillContent, globalClaudeMd].filter(Boolean).join('\n\n---\n\n'),
+          }
         : undefined,
       allowedTools: [
         'Bash',

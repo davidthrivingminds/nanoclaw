@@ -25,6 +25,14 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
+// Optional path to a directory of agent SKILL.md files (e.g. OneDrive folder).
+// When set and the path exists, all containers get the directory mounted
+// read-only at /workspace/extra/skills/ and can load their SKILL.md via
+// a .skill-file marker in their group folder.
+const skillsEnv = readEnvFile(['SKILLS_PATH']);
+export const SKILLS_PATH: string | null =
+  skillsEnv.SKILLS_PATH || process.env.SKILLS_PATH || null;
+
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
 export const MOUNT_ALLOWLIST_PATH = path.join(
   HOME_DIR,
