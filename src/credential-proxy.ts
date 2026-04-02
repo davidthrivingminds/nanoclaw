@@ -28,6 +28,15 @@
  * Email endpoint (/send-email):
  *   Sends email via Microsoft Graph API using the same service principal
  *   credentials as Power BI. No SMTP required.
+ *
+ * Graph Calendar endpoint (/graph-calendar):
+ *   Returns calendar events for an authorised mailbox via Microsoft Graph.
+ *   Pass ?mailbox=user@domain.com — returns next 7 days of events.
+ *
+ * Graph Mail endpoint (/graph-mail):
+ *   Returns messages from an authorised mailbox via Microsoft Graph.
+ *   Pass ?mailbox=user@domain.com&folder=inbox&top=20
+ *   Only authorised mailboxes are permitted — others return 403.
  */
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { request as httpsRequest } from 'https';
@@ -113,6 +122,84 @@ async function fetchPowerBIToken(
   });
 }
 
+async function fetchGraphToken(
+  tenantId: string,
+  clientId: string,
+  clientSecret: string,
+): Promise<string> {
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+  }).toString();
+
+  return new Promise((resolve, reject) => {
+    const tokenReq = httpsRequest(
+      {
+        hostname: 'login.microsoftonline.com',
+        port: 443,
+        path: `/${tenantId}/oauth2/v2.0/token`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (r) => {
+        const c: Buffer[] = [];
+        r.on('data', (d: Buffer) => c.push(d));
+        r.on('end', () => {
+          const d = JSON.parse(Buffer.concat(c).toString()) as {
+            access_token?: string;
+            error_description?: string;
+          };
+          if (!d.access_token) reject(new Error(d.error_description || 'No Graph token'));
+          else resolve(d.access_token);
+        });
+      },
+    );
+    tokenReq.on('error', reject);
+    tokenReq.write(body);
+    tokenReq.end();
+  });
+}
+
+async function fetchGraphData(token: string, path: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const graphReq = httpsRequest(
+      {
+        hostname: 'graph.microsoft.com',
+        port: 443,
+        path,
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      (r) => {
+        const c: Buffer[] = [];
+        r.on('data', (d: Buffer) => c.push(d));
+        r.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(c).toString()) as unknown;
+            if (r.statusCode && r.statusCode >= 200 && r.statusCode < 300) {
+              resolve(parsed);
+            } else {
+              reject(new Error(`Graph API ${r.statusCode}: ${JSON.stringify(parsed)}`));
+            }
+          } catch (err) {
+            reject(err);
+          }
+        });
+      },
+    );
+    graphReq.on('error', reject);
+    graphReq.end();
+  });
+}
+
 function handlePowerBIRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -174,8 +261,6 @@ function handleExcelBudget(res: ServerResponse, excelPath: string): void {
     res.end(JSON.stringify({ error: `Excel file not found: ${excelPath}` }));
     return;
   }
-  // Dynamic import so startup doesn't fail if xlsx isn't installed yet.
-  // xlsx is CJS; when dynamically imported in ESM, exports land on .default.
   import('xlsx')
     .then((mod) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -277,7 +362,16 @@ export function startCredentialProxy(
       { from: secrets.ALERT_EMAIL_FROM },
       'Email endpoint enabled (Microsoft Graph)',
     );
+    logger.info('Graph calendar endpoint enabled');
+    logger.info('Graph mail endpoint enabled');
   }
+
+  const authorisedMailboxes = [
+    'david@thrivingmindsglobal.com',
+    'clara@thrivingmindsglobal.com',
+    'info@thrivingmindsglobal.com',
+    'accounts@thrivingmindsglobal.com',
+  ];
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
@@ -362,51 +456,12 @@ export function startCredentialProxy(
               const to = payload.to || secrets.ALERT_EMAIL_TO!;
               const from = secrets.ALERT_EMAIL_FROM!;
 
-              // Get Graph token (reuses Power BI service principal credentials)
-              const graphToken = await (async () => {
-                const gbody = new URLSearchParams({
-                  grant_type: 'client_credentials',
-                  client_id: secrets.POWERBI_CLIENT_ID!,
-                  client_secret: secrets.POWERBI_CLIENT_SECRET!,
-                  scope: 'https://graph.microsoft.com/.default',
-                }).toString();
-                return new Promise<string>((resolve, reject) => {
-                  const tokenReq = httpsRequest(
-                    {
-                      hostname: 'login.microsoftonline.com',
-                      port: 443,
-                      path: `/${secrets.POWERBI_TENANT_ID}/oauth2/v2.0/token`,
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Content-Length': Buffer.byteLength(gbody),
-                      },
-                    },
-                    (r) => {
-                      const c: Buffer[] = [];
-                      r.on('data', (d: Buffer) => c.push(d));
-                      r.on('end', () => {
-                        const d = JSON.parse(
-                          Buffer.concat(c).toString(),
-                        ) as {
-                          access_token?: string;
-                          error_description?: string;
-                        };
-                        if (!d.access_token)
-                          reject(
-                            new Error(d.error_description || 'No token'),
-                          );
-                        else resolve(d.access_token);
-                      });
-                    },
-                  );
-                  tokenReq.on('error', reject);
-                  tokenReq.write(gbody);
-                  tokenReq.end();
-                });
-              })();
+              const graphToken = await fetchGraphToken(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
 
-              // Send via Graph API
               const mailPayload = JSON.stringify({
                 message: {
                   subject: payload.subject || '(no subject)',
@@ -423,7 +478,7 @@ export function startCredentialProxy(
                     path: `/v1.0/users/${from}/sendMail`,
                     method: 'POST',
                     headers: {
-                      Authorization: `Bearer ${graphToken}`,
+                      'Authorization': `Bearer ${graphToken}`,
                       'Content-Type': 'application/json',
                       'Content-Length': Buffer.byteLength(mailPayload),
                     },
@@ -432,18 +487,10 @@ export function startCredentialProxy(
                     const c: Buffer[] = [];
                     r.on('data', (d: Buffer) => c.push(d));
                     r.on('end', () => {
-                      if (
-                        r.statusCode &&
-                        r.statusCode >= 200 &&
-                        r.statusCode < 300
-                      ) {
+                      if (r.statusCode && r.statusCode >= 200 && r.statusCode < 300) {
                         resolve();
                       } else {
-                        reject(
-                          new Error(
-                            `Graph sendMail ${r.statusCode}: ${Buffer.concat(c).toString()}`,
-                          ),
-                        );
+                        reject(new Error(`Graph sendMail ${r.statusCode}: ${Buffer.concat(c).toString()}`));
                       }
                     });
                   },
@@ -453,14 +500,97 @@ export function startCredentialProxy(
                 sendReq.end();
               });
 
-              logger.info(
-                { to, subject: payload.subject },
-                'Email sent via Microsoft Graph',
-              );
+              logger.info({ to, subject: payload.subject }, 'Email sent via Microsoft Graph');
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true }));
             } catch (err) {
               logger.error({ err }, 'Email send failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
+            return;
+          }
+
+          // ── Graph Calendar endpoint ──────────────────────────────────────
+          if (req.url?.startsWith('/graph-calendar') && req.method === 'GET') {
+            if (!graphEmailConfigured) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Graph not configured.' }));
+              return;
+            }
+            try {
+              const urlObj = new URL(req.url, 'http://localhost');
+              const mailbox = urlObj.searchParams.get('mailbox');
+              if (!mailbox) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'mailbox query parameter required' }));
+                return;
+              }
+              if (!authorisedMailboxes.includes(mailbox.toLowerCase())) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Mailbox ${mailbox} is not on the authorised list.` }));
+                return;
+              }
+
+              const graphToken = await fetchGraphToken(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
+
+              const now = new Date();
+              const weekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+              const startDT = now.toISOString();
+              const endDT = weekAhead.toISOString();
+              const calPath = `/v1.0/users/${mailbox}/calendarView?startDateTime=${startDT}&endDateTime=${endDT}&$select=subject,start,end,location,attendees,bodyPreview&$orderby=start/dateTime&$top=20`;
+
+              const calData = await fetchGraphData(graphToken, calPath);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(calData));
+            } catch (err) {
+              logger.error({ err }, 'Graph calendar fetch failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
+            return;
+          }
+
+          // ── Graph Mail endpoint ──────────────────────────────────────────
+          if (req.url?.startsWith('/graph-mail') && req.method === 'GET') {
+            if (!graphEmailConfigured) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Graph not configured.' }));
+              return;
+            }
+            try {
+              const urlObj = new URL(req.url, 'http://localhost');
+              const mailbox = urlObj.searchParams.get('mailbox');
+              const folder = urlObj.searchParams.get('folder') || 'inbox';
+              const top = urlObj.searchParams.get('top') || '20';
+
+              if (!mailbox) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'mailbox query parameter required' }));
+                return;
+              }
+              if (!authorisedMailboxes.includes(mailbox.toLowerCase())) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Mailbox ${mailbox} is not on the authorised list.` }));
+                return;
+              }
+
+              const graphToken = await fetchGraphToken(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
+
+              const mailPath = `/v1.0/users/${encodeURIComponent(mailbox)}/mailFolders/${folder}/messages?$select=subject,from,receivedDateTime,bodyPreview,isRead&$orderby=receivedDateTime%20desc&$top=${top}`;
+              const mailData = await fetchGraphData(graphToken, mailPath);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(mailData));
+            } catch (err) {
+              logger.error({ err }, 'Graph mail fetch failed');
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: (err as Error).message }));
             }
@@ -477,7 +607,6 @@ export function startCredentialProxy(
             'content-length': body.length,
           };
 
-          // Strip hop-by-hop headers that must not be forwarded by proxies
           delete headers['connection'];
           delete headers['keep-alive'];
           delete headers['transfer-encoding'];
