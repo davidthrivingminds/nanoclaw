@@ -61,6 +61,22 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 
 /**
+ * Fetch the HubSpot private app access token from the credential proxy.
+ * Returns null if HubSpot is not configured or the proxy is unreachable.
+ */
+async function fetchHubSpotToken(): Promise<string | null> {
+  const proxyUrl = process.env.ANTHROPIC_BASE_URL || 'http://192.168.64.1:3001';
+  try {
+    const res = await fetch(`${proxyUrl}/hubspot-token`);
+    if (!res.ok) return null;
+    const data = await res.json() as { token?: string };
+    return data.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Push-based async iterable for streaming user messages to the SDK.
  * Keeps the iterable alive until end() is called, preventing isSingleUserTurn.
  */
@@ -338,6 +354,7 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
+  hubspotToken?: string | null,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   const stream = new MessageStream();
   stream.push(prompt);
@@ -409,7 +426,9 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__powerbi__*',
+        'mcp__hubspot__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -425,6 +444,22 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        powerbi: {
+          command: 'node',
+          args: [path.join(path.dirname(mcpServerPath), 'powerbi-mcp-server.js')],
+          env: {
+            NANOCLAW_PROXY_URL: process.env.ANTHROPIC_BASE_URL || 'http://192.168.64.1:3001',
+          },
+        },
+        ...(hubspotToken && fs.existsSync('/workspace/group/.hubspot-enabled') ? {
+          hubspot: {
+            command: 'node',
+            args: [new URL(import.meta.resolve('@hubspot/mcp-server')).pathname],
+            env: {
+              HUBSPOT_ACCESS_TOKEN: hubspotToken,
+            },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
@@ -539,6 +574,9 @@ async function main(): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
+  // Fetch HubSpot token from credential proxy (null if not configured)
+  const hubspotToken = await fetchHubSpotToken();
+
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
@@ -582,7 +620,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt, hubspotToken);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
