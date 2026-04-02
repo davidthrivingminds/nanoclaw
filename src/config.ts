@@ -25,6 +25,11 @@ export const SCHEDULER_POLL_INTERVAL = 60000;
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
+// Optional path to OneDrive Task_Board folder for live task sync
+const taskBoardEnv = readEnvFile(['TASK_BOARD_PATH']);
+export const TASK_BOARD_PATH: string | null =
+  taskBoardEnv.TASK_BOARD_PATH || process.env.TASK_BOARD_PATH || null;
+
 // Optional path to a directory of agent SKILL.md files (e.g. OneDrive folder).
 // When set and the path exists, all containers get the directory mounted
 // read-only at /workspace/extra/skills/ and can load their SKILL.md via

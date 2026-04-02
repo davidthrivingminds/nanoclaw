@@ -10,6 +10,7 @@ import {
   IDLE_TIMEOUT,
   MAX_MESSAGES_PER_PROMPT,
   POLL_INTERVAL,
+  TASK_BOARD_PATH,
   TIMEZONE,
 } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
@@ -61,6 +62,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { appendAuditLog, writeTasksJson } from './task-board.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -422,6 +424,11 @@ async function startMessageLoop(): Promise<void> {
 
   logger.info(`NanoClaw running (default trigger: ${DEFAULT_TRIGGER})`);
 
+  // Write initial Task Board snapshot so OneDrive has current state at startup
+  if (TASK_BOARD_PATH) {
+    writeTasksJson(TASK_BOARD_PATH, getAllTasks());
+  }
+
   while (true) {
     try {
       const jids = Object.keys(registeredGroups);
@@ -686,6 +693,26 @@ async function main(): Promise<void> {
       const text = formatOutbound(rawText);
       if (text) await channel.sendMessage(jid, text);
     },
+    onTasksChanged: (event) => {
+      const tasks = getAllTasks();
+      const taskRows = tasks.map((t) => ({
+        id: t.id,
+        groupFolder: t.group_folder,
+        prompt: t.prompt,
+        script: t.script || undefined,
+        schedule_type: t.schedule_type,
+        schedule_value: t.schedule_value,
+        status: t.status,
+        next_run: t.next_run,
+      }));
+      for (const group of Object.values(registeredGroups)) {
+        writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+      }
+      if (TASK_BOARD_PATH) {
+        writeTasksJson(TASK_BOARD_PATH, tasks);
+        if (event) appendAuditLog(TASK_BOARD_PATH, event);
+      }
+    },
   });
   startIpcWatcher({
     sendMessage: (jid, text) => {
@@ -705,7 +732,7 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
-    onTasksChanged: () => {
+    onTasksChanged: (event) => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
         id: t.id,
@@ -719,6 +746,11 @@ async function main(): Promise<void> {
       }));
       for (const group of Object.values(registeredGroups)) {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+      }
+      // Sync to OneDrive Task Board
+      if (TASK_BOARD_PATH) {
+        writeTasksJson(TASK_BOARD_PATH, tasks);
+        if (event) appendAuditLog(TASK_BOARD_PATH, event);
       }
     },
   });

@@ -3,6 +3,7 @@ import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
 import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { TaskAuditEvent } from './task-board.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -73,6 +74,7 @@ export interface SchedulerDependencies {
     groupFolder: string,
   ) => void;
   sendMessage: (jid: string, text: string) => Promise<void>;
+  onTasksChanged?: (event?: TaskAuditEvent) => void;
 }
 
 async function runTask(
@@ -238,6 +240,18 @@ async function runTask(
       ? result.slice(0, 200)
       : 'Completed';
   updateTaskAfterRun(task.id, nextRun, resultSummary);
+
+  deps.onTasksChanged?.({
+    event: 'executed',
+    task_id: task.id,
+    group_folder: task.group_folder,
+    details: {
+      status: error ? 'error' : 'success',
+      duration_ms: durationMs,
+      result: resultSummary,
+      ...(error ? { error } : {}),
+    },
+  });
 }
 
 let schedulerRunning = false;

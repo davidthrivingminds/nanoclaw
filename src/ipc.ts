@@ -8,6 +8,7 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { TaskAuditEvent } from './task-board.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -22,7 +23,7 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
-  onTasksChanged: () => void;
+  onTasksChanged: (event?: TaskAuditEvent) => void;
 }
 
 let ipcWatcherRunning = false;
@@ -273,7 +274,16 @@ export async function processTaskIpc(
           { taskId, sourceGroup, targetFolder, contextMode },
           'Task created via IPC',
         );
-        deps.onTasksChanged();
+        deps.onTasksChanged({
+          event: 'created',
+          task_id: taskId,
+          group_folder: targetFolder,
+          details: {
+            prompt: data.prompt,
+            schedule_type: scheduleType,
+            schedule_value: data.schedule_value,
+          },
+        });
       }
       break;
 
@@ -286,7 +296,11 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task paused via IPC',
           );
-          deps.onTasksChanged();
+          deps.onTasksChanged({
+            event: 'paused',
+            task_id: data.taskId,
+            group_folder: task.group_folder,
+          });
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -305,7 +319,11 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via IPC',
           );
-          deps.onTasksChanged();
+          deps.onTasksChanged({
+            event: 'resumed',
+            task_id: data.taskId,
+            group_folder: task.group_folder,
+          });
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -324,7 +342,11 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via IPC',
           );
-          deps.onTasksChanged();
+          deps.onTasksChanged({
+            event: 'cancelled',
+            task_id: data.taskId,
+            group_folder: task.group_folder,
+          });
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -396,7 +418,12 @@ export async function processTaskIpc(
           { taskId: data.taskId, sourceGroup, updates },
           'Task updated via IPC',
         );
-        deps.onTasksChanged();
+        deps.onTasksChanged({
+          event: 'updated',
+          task_id: data.taskId,
+          group_folder: task.group_folder,
+          details: updates as Record<string, unknown>,
+        });
       }
       break;
 
