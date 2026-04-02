@@ -30,6 +30,8 @@ import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
 import fs from 'fs';
 
+import nodemailer from 'nodemailer';
+
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
@@ -233,6 +235,12 @@ export function startCredentialProxy(
     'POWERBI_CLIENT_SECRET',
     'POWERBI_EXCEL_PATH',
     'HUBSPOT_ACCESS_TOKEN',
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_USER',
+    'SMTP_PASS',
+    'ALERT_EMAIL_FROM',
+    'ALERT_EMAIL_TO',
   ]);
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
@@ -257,6 +265,24 @@ export function startCredentialProxy(
   }
   if (secrets.HUBSPOT_ACCESS_TOKEN) {
     logger.info('HubSpot token endpoint enabled (private app)');
+  }
+
+  const smtpConfigured = !!(
+    secrets.SMTP_HOST &&
+    secrets.SMTP_USER &&
+    secrets.SMTP_PASS &&
+    secrets.ALERT_EMAIL_TO
+  );
+  const smtpTransport = smtpConfigured
+    ? nodemailer.createTransport({
+        host: secrets.SMTP_HOST,
+        port: parseInt(secrets.SMTP_PORT || '587', 10),
+        secure: (secrets.SMTP_PORT || '587') === '465',
+        auth: { user: secrets.SMTP_USER, pass: secrets.SMTP_PASS },
+      })
+    : null;
+  if (smtpConfigured) {
+    logger.info({ host: secrets.SMTP_HOST, user: secrets.SMTP_USER }, 'Email endpoint enabled');
   }
 
   return new Promise((resolve, reject) => {
@@ -318,6 +344,40 @@ export function startCredentialProxy(
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ token: hsToken }));
+            return;
+          }
+
+          // ── Email endpoint ──────────────────────────────────────────────
+          if (req.url === '/send-email' && req.method === 'POST') {
+            if (!smtpTransport) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                error: 'Email not configured. Add SMTP_HOST, SMTP_USER, SMTP_PASS, ALERT_EMAIL_TO to .env',
+              }));
+              return;
+            }
+            try {
+              const payload = JSON.parse(body.toString()) as {
+                subject?: string;
+                body?: string;
+                to?: string;
+              };
+              const to = payload.to || secrets.ALERT_EMAIL_TO!;
+              const from = secrets.ALERT_EMAIL_FROM || secrets.SMTP_USER!;
+              await smtpTransport.sendMail({
+                from,
+                to,
+                subject: payload.subject || '(no subject)',
+                text: payload.body || '',
+              });
+              logger.info({ to, subject: payload.subject }, 'Email sent');
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true }));
+            } catch (err) {
+              logger.error({ err }, 'Email send failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
             return;
           }
 

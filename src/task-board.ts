@@ -45,7 +45,11 @@ export function writeTasksJson(
       generated_at: new Date().toISOString(),
       tasks,
     };
-    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify(payload, null, 2) + '\n',
+      'utf-8',
+    );
   } catch (err) {
     logger.warn({ err, filePath }, 'Task Board: failed to write tasks.json');
   }
@@ -61,7 +65,9 @@ export function appendAuditLog(
     let entries: AuditLogEntry[] = [];
     if (fs.existsSync(filePath)) {
       try {
-        entries = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as AuditLogEntry[];
+        entries = JSON.parse(
+          fs.readFileSync(filePath, 'utf-8'),
+        ) as AuditLogEntry[];
         if (!Array.isArray(entries)) entries = [];
       } catch {
         entries = []; // corrupt file — start fresh rather than crash
