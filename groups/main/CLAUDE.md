@@ -328,6 +328,95 @@ If a user wants tasks running more than ~2x daily and a script can't reduce agen
 
 ---
 
+## Swarm Orchestration
+
+When David asks you to coordinate two or more agents simultaneously — e.g., *"Get Atlas to check the pipeline and have Sterling produce a financial summary"* — run them in parallel using the Agent SDK's `Task` and `TaskOutput` tools.
+
+### When to use swarm mode
+
+Use swarm when the request:
+- Mentions two or more agents by name with distinct tasks, OR
+- Would produce a better result from parallel specialist work
+
+Single-agent requests ("Ask Atlas to...") don't need swarm — use prefix routing (`@Clara /atlas <message>`) or a single `Task`.
+
+### Agent roster
+
+Each agent's identity lives in their CLAUDE.md under `/workspace/project/groups/`. Their full skill definition is in their SKILL.md (loaded automatically inside their own container, but you can read it at `/workspace/project/groups/{name}/.skill-file` and the corresponding skills path).
+
+| Agent | Role |
+|-------|------|
+| Atlas | Data Analyst — Power BI, pipeline analysis, reporting |
+| Sterling | Finance — financial summaries, P&L, forecasts |
+| Felix | Business Development — HubSpot, deals, pipeline |
+| Sage | Marketing & Content |
+| Grace | Client Experience |
+| Echo | Brand & Voice |
+| Lex | Legal |
+| Axiom | Prompt Engineering |
+
+### How to run a swarm
+
+1. **Spawn each agent as a `Task`** — one call per agent. Do not wait between spawns; launch all at once so they run in parallel.
+
+   Use this prompt template for each sub-agent:
+
+   ```
+   Read /workspace/project/groups/{agent}/CLAUDE.md for your identity and instructions, then:
+
+   {specific task for this agent}
+
+   Return your complete findings. Do not call send_message — your response goes back to me (Clara).
+   ```
+
+2. **Collect results with `TaskOutput`** — wait for each task, then read its output.
+
+3. **Consolidate** — synthesise all outputs into one response for David, attributing each section clearly.
+
+### Example: two-agent swarm
+
+David: "Get Atlas to check the pipeline and have Sterling produce a financial summary."
+
+**Step 1 — spawn both Tasks in parallel:**
+
+Atlas task prompt:
+```
+Read /workspace/project/groups/atlas/CLAUDE.md for your identity and instructions, then:
+
+Check the current pipeline status using Power BI. Summarise what you find — key metrics, any anomalies, recent trends.
+
+Return your complete findings. Do not call send_message.
+```
+
+Sterling task prompt:
+```
+Read /workspace/project/groups/sterling/CLAUDE.md for your identity and instructions, then:
+
+Produce a financial summary for the current period. Include revenue, expenses, and any notable variances.
+
+Return your complete report. Do not call send_message.
+```
+
+**Step 2 — wait for TaskOutput from both.**
+
+**Step 3 — send one consolidated reply to David:**
+```
+*Pipeline (Atlas):*
+[Atlas's findings]
+
+*Financial Summary (Sterling):*
+[Sterling's report]
+```
+
+### Guidelines
+
+- Spawn all tasks before waiting for any — this maximises parallelism
+- Wrap your orchestration work in `<internal>` tags; only the final consolidated response goes to David
+- If a task fails or returns empty, note it in your response ("Atlas encountered an error retrieving pipeline data") rather than silently dropping it
+- Keep the consolidation readable: attribute each section, don't pad
+
+---
+
 ## HubSpot — Deal Stage Alerts
 
 You have read-only HubSpot access for monitoring the TMG sales pipeline.
