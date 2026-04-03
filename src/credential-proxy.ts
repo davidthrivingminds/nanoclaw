@@ -154,7 +154,8 @@ async function fetchGraphToken(
             access_token?: string;
             error_description?: string;
           };
-          if (!d.access_token) reject(new Error(d.error_description || 'No Graph token'));
+          if (!d.access_token)
+            reject(new Error(d.error_description || 'No Graph token'));
           else resolve(d.access_token);
         });
       },
@@ -174,7 +175,7 @@ async function fetchGraphData(token: string, path: string): Promise<unknown> {
         path,
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       },
@@ -187,7 +188,11 @@ async function fetchGraphData(token: string, path: string): Promise<unknown> {
             if (r.statusCode && r.statusCode >= 200 && r.statusCode < 300) {
               resolve(parsed);
             } else {
-              reject(new Error(`Graph API ${r.statusCode}: ${JSON.stringify(parsed)}`));
+              reject(
+                new Error(
+                  `Graph API ${r.statusCode}: ${JSON.stringify(parsed)}`,
+                ),
+              );
             }
           } catch (err) {
             reject(err);
@@ -478,7 +483,7 @@ export function startCredentialProxy(
                     path: `/v1.0/users/${from}/sendMail`,
                     method: 'POST',
                     headers: {
-                      'Authorization': `Bearer ${graphToken}`,
+                      Authorization: `Bearer ${graphToken}`,
                       'Content-Type': 'application/json',
                       'Content-Length': Buffer.byteLength(mailPayload),
                     },
@@ -487,10 +492,18 @@ export function startCredentialProxy(
                     const c: Buffer[] = [];
                     r.on('data', (d: Buffer) => c.push(d));
                     r.on('end', () => {
-                      if (r.statusCode && r.statusCode >= 200 && r.statusCode < 300) {
+                      if (
+                        r.statusCode &&
+                        r.statusCode >= 200 &&
+                        r.statusCode < 300
+                      ) {
                         resolve();
                       } else {
-                        reject(new Error(`Graph sendMail ${r.statusCode}: ${Buffer.concat(c).toString()}`));
+                        reject(
+                          new Error(
+                            `Graph sendMail ${r.statusCode}: ${Buffer.concat(c).toString()}`,
+                          ),
+                        );
                       }
                     });
                   },
@@ -500,7 +513,10 @@ export function startCredentialProxy(
                 sendReq.end();
               });
 
-              logger.info({ to, subject: payload.subject }, 'Email sent via Microsoft Graph');
+              logger.info(
+                { to, subject: payload.subject },
+                'Email sent via Microsoft Graph',
+              );
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true }));
             } catch (err) {
@@ -523,12 +539,18 @@ export function startCredentialProxy(
               const mailbox = urlObj.searchParams.get('mailbox');
               if (!mailbox) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'mailbox query parameter required' }));
+                res.end(
+                  JSON.stringify({ error: 'mailbox query parameter required' }),
+                );
                 return;
               }
               if (!authorisedMailboxes.includes(mailbox.toLowerCase())) {
                 res.writeHead(403, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: `Mailbox ${mailbox} is not on the authorised list.` }));
+                res.end(
+                  JSON.stringify({
+                    error: `Mailbox ${mailbox} is not on the authorised list.`,
+                  }),
+                );
                 return;
               }
 
@@ -539,10 +561,12 @@ export function startCredentialProxy(
               );
 
               const now = new Date();
-              const weekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+              const weekAhead = new Date(
+                now.getTime() + 7 * 24 * 60 * 60 * 1000,
+              );
               const startDT = now.toISOString();
               const endDT = weekAhead.toISOString();
-              const calPath = `/v1.0/users/${mailbox}/calendarView?startDateTime=${startDT}&endDateTime=${endDT}&$select=subject,start,end,location,attendees,bodyPreview&$orderby=start/dateTime&$top=20`;
+              const calPath = `/v1.0/users/${encodeURIComponent(mailbox)}/calendarView?startDateTime=${startDT}&endDateTime=${endDT}&$select=subject,start,end,location,attendees,bodyPreview&$orderby=start/dateTime&$top=20`;
 
               const calData = await fetchGraphData(graphToken, calPath);
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -570,12 +594,18 @@ export function startCredentialProxy(
 
               if (!mailbox) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'mailbox query parameter required' }));
+                res.end(
+                  JSON.stringify({ error: 'mailbox query parameter required' }),
+                );
                 return;
               }
               if (!authorisedMailboxes.includes(mailbox.toLowerCase())) {
                 res.writeHead(403, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: `Mailbox ${mailbox} is not on the authorised list.` }));
+                res.end(
+                  JSON.stringify({
+                    error: `Mailbox ${mailbox} is not on the authorised list.`,
+                  }),
+                );
                 return;
               }
 

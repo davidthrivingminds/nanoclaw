@@ -9,14 +9,64 @@ store/
 data/
 logs/
 
-# Groups - only track base structure and specific CLAUDE.md files
+# Groups - only track base structure and specific CLAUDE.md / .skill-file
 groups/*
 !groups/main/
 !groups/global/
+!groups/whatsapp_main/
+!groups/knox/
+!groups/scout/
+!groups/felix/
+!groups/sage/
+!groups/grace/
+!groups/sterling/
+!groups/atlas/
+!groups/echo/
+!groups/lex/
+!groups/axiom/
+!groups/vera/
 groups/main/*
 groups/global/*
+groups/whatsapp_main/*
+groups/knox/*
+groups/scout/*
+groups/felix/*
+groups/sage/*
+groups/grace/*
+groups/sterling/*
+groups/atlas/*
+groups/echo/*
+groups/lex/*
+groups/axiom/*
+groups/vera/*
 !groups/main/CLAUDE.md
 !groups/global/CLAUDE.md
+!groups/whatsapp_main/CLAUDE.md
+!groups/whatsapp_main/.skill-file
+!groups/whatsapp_main/.hubspot-enabled
+!groups/knox/CLAUDE.md
+!groups/knox/.skill-file
+!groups/scout/CLAUDE.md
+!groups/scout/.skill-file
+!groups/felix/CLAUDE.md
+!groups/felix/.skill-file
+!groups/felix/.hubspot-enabled
+!groups/sage/CLAUDE.md
+!groups/sage/.skill-file
+!groups/grace/CLAUDE.md
+!groups/grace/.skill-file
+!groups/sterling/CLAUDE.md
+!groups/sterling/.skill-file
+!groups/atlas/CLAUDE.md
+!groups/atlas/.skill-file
+!groups/echo/CLAUDE.md
+!groups/echo/.skill-file
+!groups/lex/CLAUDE.md
+!groups/lex/.skill-file
+!groups/axiom/CLAUDE.md
+!groups/axiom/.skill-file
+!groups/vera/CLAUDE.md
+!groups/vera/.skill-file
 
 # Secrets
 *.keys.json
