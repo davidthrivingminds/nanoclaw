@@ -228,6 +228,84 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
+  // ── Prefix routing: @Clara /agentname <message> ─────────────────────────
+  // Only the main group can route to other agents. Check the latest message
+  // for a /foldername prefix and, if valid, delegate to that agent's container
+  // while sending the reply back to this same chat JID.
+  if (isMainGroup) {
+    const latestMsg = missedMessages[missedMessages.length - 1];
+    const prefixMatch = parseAgentPrefix(latestMsg.content, ASSISTANT_NAME);
+    if (prefixMatch) {
+      const previousCursor = lastAgentTimestamp[chatJid] || '';
+      lastAgentTimestamp[chatJid] = latestMsg.timestamp;
+      saveState();
+
+      const agentName =
+        prefixMatch.folder.charAt(0).toUpperCase() + prefixMatch.folder.slice(1);
+      const targetGroup: RegisteredGroup = {
+        name: agentName,
+        folder: prefixMatch.folder,
+        trigger: `@${ASSISTANT_NAME}`,
+        isMain: false,
+        requiresTrigger: false,
+        added_at: new Date().toISOString(),
+      };
+
+      logger.info(
+        { to: prefixMatch.folder, contentLength: prefixMatch.content.length },
+        'Prefix routing',
+      );
+
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          queue.closeStdin(chatJid);
+        }, IDLE_TIMEOUT);
+      };
+
+      await channel.setTyping?.(chatJid, true);
+      let hadError = false;
+      let outputSentToUser = false;
+
+      await runAgent(
+        targetGroup,
+        prefixMatch.content ||
+          `(David invoked you directly via @${ASSISTANT_NAME} /${prefixMatch.folder} with no additional message.)`,
+        chatJid,
+        async (result) => {
+          if (result.result) {
+            const raw =
+              typeof result.result === 'string'
+                ? result.result
+                : JSON.stringify(result.result);
+            const text = raw
+              .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+              .trim();
+            if (text) {
+              await channel.sendMessage(chatJid, text);
+              outputSentToUser = true;
+            }
+            resetIdleTimer();
+          }
+          if (result.status === 'success') queue.notifyIdle(chatJid);
+          if (result.status === 'error') hadError = true;
+        },
+      );
+
+      await channel.setTyping?.(chatJid, false);
+      if (idleTimer) clearTimeout(idleTimer);
+
+      if (hadError && !outputSentToUser) {
+        lastAgentTimestamp[chatJid] = previousCursor;
+        saveState();
+        return false;
+      }
+      return true;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
@@ -413,6 +491,27 @@ async function runAgent(
     logger.error({ group: group.name, err }, 'Agent error');
     return 'error';
   }
+}
+
+/**
+ * If the message starts with "@AssistantName /foldername [message]" and
+ * foldername is a valid group folder on disk, return the target folder and
+ * the stripped message body. Returns null if the prefix is absent or the
+ * folder doesn't exist.
+ */
+function parseAgentPrefix(
+  content: string,
+  triggerName: string,
+): { folder: string; content: string } | null {
+  const re = new RegExp(
+    `^@${triggerName}\\s+/(\\w+)(?:\\s+([\\s\\S]*))?$`,
+    'i',
+  );
+  const match = content.trim().match(re);
+  if (!match) return null;
+  const folder = match[1].toLowerCase();
+  if (!fs.existsSync(path.join(GROUPS_DIR, folder))) return null;
+  return { folder, content: match[2]?.trim() ?? '' };
 }
 
 async function startMessageLoop(): Promise<void> {
