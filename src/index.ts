@@ -241,7 +241,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       saveState();
 
       const agentName =
-        prefixMatch.folder.charAt(0).toUpperCase() + prefixMatch.folder.slice(1);
+        prefixMatch.folder.charAt(0).toUpperCase() +
+        prefixMatch.folder.slice(1);
       const targetGroup: RegisteredGroup = {
         name: agentName,
         folder: prefixMatch.folder,
@@ -494,24 +495,45 @@ async function runAgent(
 }
 
 /**
- * If the message starts with "@AssistantName /foldername [message]" and
- * foldername is a valid group folder on disk, return the target folder and
- * the stripped message body. Returns null if the prefix is absent or the
- * folder doesn't exist.
+ * Detect agent prefix routing in a message. Two syntaxes are supported:
+ *
+ *   @Clara /atlas <message>    — explicit slash prefix
+ *   @Clara Atlas, <message>    — natural addressing with comma
+ *
+ * The folder name must exist on disk under GROUPS_DIR. Returns null if no
+ * valid prefix is found.
  */
 function parseAgentPrefix(
   content: string,
   triggerName: string,
 ): { folder: string; content: string } | null {
-  const re = new RegExp(
+  const trimmed = content.trim();
+
+  // Form 1: @Clara /agentname [message]
+  const slashRe = new RegExp(
     `^@${triggerName}\\s+/(\\w+)(?:\\s+([\\s\\S]*))?$`,
     'i',
   );
-  const match = content.trim().match(re);
-  if (!match) return null;
-  const folder = match[1].toLowerCase();
-  if (!fs.existsSync(path.join(GROUPS_DIR, folder))) return null;
-  return { folder, content: match[2]?.trim() ?? '' };
+  const slashMatch = trimmed.match(slashRe);
+  if (slashMatch) {
+    const folder = slashMatch[1].toLowerCase();
+    if (fs.existsSync(path.join(GROUPS_DIR, folder)))
+      return { folder, content: slashMatch[2]?.trim() ?? '' };
+  }
+
+  // Form 2: @Clara AgentName, [message]  (comma required to disambiguate)
+  const commaRe = new RegExp(
+    `^@${triggerName}\\s+(\\w+),(?:\\s+([\\s\\S]*))?$`,
+    'i',
+  );
+  const commaMatch = trimmed.match(commaRe);
+  if (commaMatch) {
+    const folder = commaMatch[1].toLowerCase();
+    if (fs.existsSync(path.join(GROUPS_DIR, folder)))
+      return { folder, content: commaMatch[2]?.trim() ?? '' };
+  }
+
+  return null;
 }
 
 async function startMessageLoop(): Promise<void> {
