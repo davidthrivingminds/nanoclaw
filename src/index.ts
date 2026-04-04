@@ -4,6 +4,7 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
+  DATA_DIR,
   DEFAULT_TRIGGER,
   getTriggerPattern,
   GROUPS_DIR,
@@ -212,9 +213,7 @@ function parseDraftEmail(
   const endIdx = text.indexOf(DRAFT_EMAIL_END);
   if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null;
 
-  const block = text
-    .slice(startIdx + DRAFT_EMAIL_START.length, endIdx)
-    .trim();
+  const block = text.slice(startIdx + DRAFT_EMAIL_START.length, endIdx).trim();
   const lines = block.split('\n');
 
   let to = '';
@@ -310,6 +309,81 @@ async function processOutput(
   return false;
 }
 
+// ── Nightly session cleanup ───────────────────────────────────────────────────
+
+const SESSION_CLEANUP_EXCLUDE = new Set(['main', 'whatsapp_main']);
+
+/** Delete all .jsonl session transcript files for every agent group except
+ *  main and whatsapp_main. Also clears the session ID from the DB so the
+ *  next container run starts a fresh session. */
+function cleanupStaleSessions(): void {
+  const sessionsDir = path.join(DATA_DIR, 'sessions');
+  if (!fs.existsSync(sessionsDir)) return;
+
+  let deleted = 0;
+  const cleared: string[] = [];
+
+  for (const folder of fs.readdirSync(sessionsDir)) {
+    if (SESSION_CLEANUP_EXCLUDE.has(folder)) continue;
+
+    const claudeProjects = path.join(
+      sessionsDir,
+      folder,
+      '.claude',
+      'projects',
+    );
+    if (!fs.existsSync(claudeProjects)) continue;
+
+    for (const projectDir of fs.readdirSync(claudeProjects)) {
+      const projectPath = path.join(claudeProjects, projectDir);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(projectPath);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+
+      for (const file of fs.readdirSync(projectPath)) {
+        if (!file.endsWith('.jsonl')) continue;
+        try {
+          fs.unlinkSync(path.join(projectPath, file));
+          deleted++;
+        } catch (err) {
+          logger.warn({ err, folder, file }, 'Session cleanup: failed to delete file');
+        }
+      }
+    }
+
+    deleteSession(folder);
+    cleared.push(folder);
+  }
+
+  logger.info(
+    { deleted, cleared },
+    'Nightly session cleanup complete',
+  );
+}
+
+/** Schedule cleanupStaleSessions() to run at 2 AM local time every day. */
+function scheduleDailySessionCleanup(): void {
+  const now = new Date();
+  const next2am = new Date(now);
+  next2am.setHours(2, 0, 0, 0);
+  if (next2am <= now) next2am.setDate(next2am.getDate() + 1);
+
+  const msUntil = next2am.getTime() - now.getTime();
+  logger.info(
+    { nextRun: next2am.toISOString() },
+    'Nightly session cleanup scheduled',
+  );
+
+  setTimeout(() => {
+    cleanupStaleSessions();
+    scheduleDailySessionCleanup(); // reschedule for next day
+  }, msUntil);
+}
+
 /**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
@@ -399,10 +473,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               typeof result.result === 'string'
                 ? result.result
                 : JSON.stringify(result.result);
-            const sent = await processOutput(
-              raw,
-              targetGroup.name,
-              (text) => channel.sendMessage(chatJid, text),
+            const sent = await processOutput(raw, targetGroup.name, (text) =>
+              channel.sendMessage(chatJid, text),
             );
             if (sent) outputSentToUser = true;
             resetIdleTimer();
@@ -464,10 +536,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result);
-      const sent = await processOutput(
-        raw,
-        group.name,
-        (text) => channel.sendMessage(chatJid, text),
+      const sent = await processOutput(raw, group.name, (text) =>
+        channel.sendMessage(chatJid, text),
       );
       if (sent) outputSentToUser = true;
       // Only reset idle timer on actual results, not session-update markers (result: null)
@@ -1000,6 +1070,7 @@ async function main(): Promise<void> {
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
+  scheduleDailySessionCleanup();
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);
