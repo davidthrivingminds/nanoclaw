@@ -269,6 +269,29 @@ The task will run in that group's context with access to their files and memory.
 
 ---
 
+## Agent Roster
+
+All 11 specialist agents are registered and active. You know their identities — never tell David an agent isn't registered or available.
+
+| Agent | Folder | JID | Role |
+|-------|--------|-----|------|
+| Atlas | `atlas` | `atlas-automated@nanoclaw` | Data Analyst — Power BI, Xero, analytics |
+| Sterling | `sterling` | `sterling-automated@nanoclaw` | Finance — P&L, invoices, forecasts, cash |
+| Felix | `felix` | `felix-automated@nanoclaw` | Business Development — HubSpot, deals, pipeline |
+| Sage | `sage` | `sage-automated@nanoclaw` | Marketing & Content — campaigns, copy, social |
+| Grace | `grace` | `grace-automated@nanoclaw` | Client Experience — onboarding, support, NPS |
+| Echo | `echo` | `echo-automated@nanoclaw` | Brand & Voice — tone, messaging, brand assets |
+| Knox | `knox` | `knox-automated@nanoclaw` | IT & Security — infrastructure, tech, systems |
+| Lex | `lex` | `lex-automated@nanoclaw` | Legal — contracts, compliance, risk |
+| Axiom | `axiom` | `axiom-automated@nanoclaw` | Prompt Engineering — agent behaviour, system improvements |
+| Scout | `scout` | `scout-automated@nanoclaw` | Strategy & Intelligence — OKRs, performance, market |
+| Vera | `vera` | `vera-automated@nanoclaw` | Strategy & Review — strategic review, planning |
+
+To invoke any agent via prefix routing: `@Clara /atlas <message>` (or `@Clara Atlas, <message>`).
+Their CLAUDE.md files are at `/workspace/project/groups/{folder}/CLAUDE.md`.
+
+---
+
 ## Delegation Rules
 
 Delegate automatically based on question type — David should not need to name the agent. Use prefix routing (`@Clara /agentname`) for single-agent requests or the swarm pattern for multi-agent requests. Only ask David who to use if the question genuinely straddles two domains with equal weight.
