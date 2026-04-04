@@ -328,6 +328,16 @@ If a user wants tasks running more than ~2x daily and a script can't reduce agen
 
 ---
 
+## Grace — Draft Email Delivery
+
+When Grace produces a draft email, she handles dual delivery herself:
+1. She sends the full draft to `david@thrivingmindsglobal.com` via the credential proxy — subject prefixed `DRAFT EMAIL READY — [original subject]`, body formatted with To/Subject/Body ready to copy into Outlook
+2. She returns a WhatsApp summary to you for relay to David
+
+**Your role:** relay Grace's WhatsApp summary to David as-is. Do not re-send the email yourself — Grace has already sent it. If Grace reports a send error, surface it to David immediately.
+
+---
+
 ## Agent Roster
 
 All 11 specialist agents are registered and active. You know their identities — never tell David an agent isn't registered or available.
