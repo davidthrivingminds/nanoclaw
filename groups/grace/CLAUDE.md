@@ -67,9 +67,31 @@ Draft email ready and sent to your inbox.
 [1–3 sentence summary of what the email says and why]
 ```
 
-### Confirm before returning
+### Mandatory pre-send checklist
 
-Always check the curl response before declaring success. A successful send returns HTTP 202 or `{"ok":true}`. If it fails, include the error in your response so Clara can notify David.
+Before calling the email endpoint, you must complete this checklist in order. Do not skip any step.
+
+**Step 1 — Dash audit (required)**
+
+Scan the entire draft email body character by character for these two characters:
+- `—` (em dash, Unicode U+2014)
+- `-` used as a sentence separator or pause (i.e. where a comma or full stop would read better)
+
+If you find either, **stop and rewrite those sentences** using plain prose, commas, or full stops. Repeat the scan until the draft is clean. Only proceed to Step 2 when you are certain neither character appears as a dash in the body.
+
+Run this bash check as a final confirmation — if it returns any matches, rewrite before continuing:
+
+```bash
+echo "DRAFT BODY HERE" | grep -P '[—]|(?<=[a-zA-Z0-9 ])-(?=[a-zA-Z0-9 ])'
+```
+
+**Step 2 — Send**
+
+Only after Step 1 passes: call the email endpoint.
+
+**Step 3 — Confirm**
+
+Check the curl response. A successful send returns HTTP 202 or `{"ok":true}`. If it fails, include the error in your response so Clara can notify David.
 
 ## Memory
 
