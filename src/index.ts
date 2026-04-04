@@ -191,6 +191,125 @@ export function _setRegisteredGroups(
   registeredGroups = groups;
 }
 
+// ── Draft email detection ─────────────────────────────────────────────────────
+
+const DRAFT_EMAIL_START = '---NANOCLAW_DRAFT_EMAIL---';
+const DRAFT_EMAIL_END = '---NANOCLAW_DRAFT_EMAIL_END---';
+
+interface DraftEmail {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+/** Parse a draft email marker block out of agent output.
+ *  Returns the extracted email fields and the text with the block removed,
+ *  or null if no marker is present. */
+function parseDraftEmail(
+  text: string,
+): { email: DraftEmail; stripped: string } | null {
+  const startIdx = text.indexOf(DRAFT_EMAIL_START);
+  const endIdx = text.indexOf(DRAFT_EMAIL_END);
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null;
+
+  const block = text
+    .slice(startIdx + DRAFT_EMAIL_START.length, endIdx)
+    .trim();
+  const lines = block.split('\n');
+
+  let to = '';
+  let subject = '';
+  const bodyLines: string[] = [];
+  let inBody = false;
+
+  for (const line of lines) {
+    if (!inBody) {
+      if (line.startsWith('To:')) {
+        to = line.slice(3).trim();
+      } else if (line.startsWith('Subject:')) {
+        subject = line.slice(8).trim();
+      } else if (line.trim() === '' && to && subject) {
+        inBody = true;
+      }
+    } else {
+      bodyLines.push(line);
+    }
+  }
+
+  if (!to || !subject) return null;
+
+  const email: DraftEmail = { to, subject, body: bodyLines.join('\n').trim() };
+
+  const before = text.slice(0, startIdx).trimEnd();
+  const after = text.slice(endIdx + DRAFT_EMAIL_END.length).trimStart();
+  const stripped = [before, after].filter(Boolean).join('\n\n');
+
+  return { email, stripped };
+}
+
+/** POST the draft email to the credential proxy /send-email endpoint.
+ *  'to' is intentionally omitted from the payload so the proxy uses its
+ *  own ALERT_EMAIL_TO config (David's address). */
+async function sendDraftEmail(email: DraftEmail): Promise<void> {
+  const url = `http://${PROXY_BIND_HOST}:${CREDENTIAL_PROXY_PORT}/send-email`;
+  const payload = JSON.stringify({
+    subject: `DRAFT EMAIL READY: ${email.subject}`,
+    body: `To: ${email.to}\nSubject: ${email.subject}\n\n${email.body}`,
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    if (res.ok) {
+      logger.info(
+        { to: email.to, subject: email.subject },
+        'Draft email sent to inbox via credential proxy',
+      );
+    } else {
+      const responseBody = await res.text();
+      logger.error(
+        { status: res.status, responseBody },
+        'Draft email send failed',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Draft email send error');
+  }
+}
+
+/** Process raw agent output: detect draft email blocks, strip internal tags,
+ *  deliver to the user. Returns true if any text was sent to the user. */
+async function processOutput(
+  raw: string,
+  groupName: string,
+  sendFn: (text: string) => Promise<void>,
+): Promise<boolean> {
+  let text = raw;
+
+  // Detect draft email block — fire send before stripping the marker
+  const draftResult = parseDraftEmail(text);
+  if (draftResult) {
+    sendDraftEmail(draftResult.email).catch((err) =>
+      logger.error({ err }, 'Failed to send draft email'),
+    );
+    text = draftResult.stripped;
+  }
+
+  // Strip <internal>...</internal> blocks
+  text = text.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+
+  logger.info({ group: groupName }, `Agent output: ${raw.length} chars`);
+
+  if (text) {
+    await sendFn(text);
+    return true;
+  }
+  return false;
+}
+
 /**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
@@ -280,13 +399,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               typeof result.result === 'string'
                 ? result.result
                 : JSON.stringify(result.result);
-            const text = raw
-              .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-              .trim();
-            if (text) {
-              await channel.sendMessage(chatJid, text);
-              outputSentToUser = true;
-            }
+            const sent = await processOutput(
+              raw,
+              targetGroup.name,
+              (text) => channel.sendMessage(chatJid, text),
+            );
+            if (sent) outputSentToUser = true;
             resetIdleTimer();
           }
           if (result.status === 'success') queue.notifyIdle(chatJid);
@@ -346,13 +464,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
-      }
+      const sent = await processOutput(
+        raw,
+        group.name,
+        (text) => channel.sendMessage(chatJid, text),
+      );
+      if (sent) outputSentToUser = true;
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
     }
@@ -617,7 +734,13 @@ async function startMessageLoop(): Promise<void> {
             allPending.length > 0 ? allPending : groupMessages;
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          const hasAgentPrefix =
+            isMainGroup &&
+            groupMessages.some(
+              (m) => parseAgentPrefix(m.content, ASSISTANT_NAME) !== null,
+            );
+
+          if (!hasAgentPrefix && queue.sendMessage(chatJid, formatted)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',

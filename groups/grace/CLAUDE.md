@@ -6,61 +6,32 @@ Your full skill definition is loaded at startup from your SKILL.md file.
 
 ## Draft Email Protocol (Mandatory)
 
-Every time you produce a draft email for David to send, you must complete ALL of the following steps before returning your response. This is not optional — do not return your WhatsApp summary until the email has been sent.
+Every time you produce a draft email for David to send, you must include a structured draft email block in your response. NanoClaw's host process detects this block and automatically sends the email to David's inbox — you do not need to call curl or any endpoint yourself.
 
-### Step 1 — Write the draft
+### How to include a draft email
 
-Write the full draft email in your head or as a Bash variable. Do not output it yet.
+Wrap the complete draft in these exact markers:
 
-### Step 2 — Send to David's inbox
+```
+---NANOCLAW_DRAFT_EMAIL---
+To: recipient@example.com
+Subject: Subject line here
 
-Run this node script in your sandbox. Fill in the four variables at the top with the actual draft content. Do not modify anything else.
-
-```bash
-node << 'SEND_EMAIL'
-const fs = require('fs');
-const { execSync } = require('child_process');
-
-// ── Fill these in ──────────────────────────────────────────────
-const draftTo      = 'RECIPIENT_EMAIL';
-const originalSubject = 'SUBJECT LINE';
-const draftBody    = `FULL EMAIL BODY HERE`;
-// ──────────────────────────────────────────────────────────────
-
-// Cleanup: remove em dashes and mid-sentence hyphens
-const cleanBody = draftBody
-  .replace(/\u2014/g, ',')
-  .replace(/ - /g, ', ');
-
-// Build email body block (ready to copy into Outlook)
-const emailBody = `To: ${draftTo}\nSubject: ${originalSubject}\n\n${cleanBody}`;
-
-// Build JSON payload and write to file (avoids all shell quoting issues)
-const payload = {
-  to: 'david@thrivingmindsglobal.com',
-  subject: `DRAFT EMAIL READY: ${originalSubject}`,
-  body: emailBody,
-};
-fs.writeFileSync('/tmp/email_payload.json', JSON.stringify(payload));
-
-// Send via credential proxy
-const proxyUrl = process.env.ANTHROPIC_BASE_URL || 'http://192.168.2.1:3001';
-const result = execSync(
-  `curl -s -w "\\nHTTP_STATUS:%{http_code}" -X POST "${proxyUrl}/send-email" ` +
-  `-H "Content-Type: application/json" -d @/tmp/email_payload.json`
-).toString();
-
-console.log('Send result:', result);
-const ok = result.includes('"ok":true') || result.includes('HTTP_STATUS:202') || result.includes('HTTP_STATUS:200');
-console.log(ok ? 'EMAIL SENT OK' : 'EMAIL SEND FAILED');
-SEND_EMAIL
+Full email body here. This is what will be sent to David's inbox,
+formatted ready to copy into Outlook.
+---NANOCLAW_DRAFT_EMAIL_END---
 ```
 
-If the result says `EMAIL SENT OK`, proceed to Step 3. If it says `EMAIL SEND FAILED`, include the full error in your WhatsApp response so Clara can notify David.
+Rules:
+- `To:` must be on the first line, followed by the recipient address
+- `Subject:` must be on the second line, followed by the subject
+- A blank line separates the headers from the body
+- The markers must appear on their own lines, exactly as shown
+- The host strips the block from your WhatsApp response — David sees only your summary
 
-### Step 3 — Return WhatsApp summary
+### What to include in the rest of your response
 
-Only after Step 2 succeeds, return your response to Clara using this format:
+After the marker block, include a brief WhatsApp summary for David:
 
 ```
 Draft email sent to your inbox.
@@ -68,12 +39,40 @@ Draft email sent to your inbox.
 *To:* recipient@example.com
 *Subject:* Subject line here
 
-[2-3 sentences summarising the email and its purpose]
+[2–3 sentences summarising the email and its purpose]
 ```
 
-### Writing style rule
+### Writing style
 
-No em dashes (—) and no hyphens used as sentence separators ( - ) anywhere in the draft body. The cleanup in Step 2 catches these programmatically, but avoid generating them in the first place.
+No em dashes (—) and no hyphens used as sentence separators ( - ) anywhere in the draft. Use commas or full stops instead.
+
+### Example
+
+```
+---NANOCLAW_DRAFT_EMAIL---
+To: james.wong@example.com
+Subject: Following up after the leadership retreat
+
+Dear James,
+
+I hope you have been well since the retreat last month. We really valued
+having you there and wanted to check in to see how you have been
+implementing some of the frameworks we explored together.
+
+Would you be open to a brief call this week to share how things are going?
+We would love to hear from you.
+
+Warm regards,
+David
+---NANOCLAW_DRAFT_EMAIL_END---
+
+Draft email sent to your inbox.
+
+*To:* james.wong@example.com
+*Subject:* Following up after the leadership retreat
+
+A warm follow-up to James Wong checking in after last month's leadership retreat, inviting him to reconnect and share progress.
+```
 
 ## Memory
 
