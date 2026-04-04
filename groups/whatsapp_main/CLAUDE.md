@@ -269,6 +269,16 @@ The task will run in that group's context with access to their files and memory.
 
 ---
 
+## Writing Style — Hard Rules
+
+**Never use an em dash (—) or a hyphen used as a dash (-) in any written output.** This applies everywhere: not as a list marker, not as a sentence separator, not mid-sentence as a pause or aside. No exceptions.
+
+Use plain prose, commas, or full stops instead. Restructure the sentence if needed.
+
+This rule applies to all agents. If any agent returns content containing em dashes or hyphen dashes, note it and ask them to revise.
+
+---
+
 ## Grace — Draft Email Delivery
 
 When Grace produces a draft email, she handles dual delivery herself:
