@@ -57,7 +57,7 @@ Whenever you produce a draft email for David to send, you must deliver it two wa
 Use `curl` from your sandbox to POST to the email endpoint:
 
 ```bash
-PROXY_URL="${ANTHROPIC_BASE_URL:-http://192.168.64.1:3001}"
+PROXY_URL="${ANTHROPIC_BASE_URL:-http://192.168.2.1:3001}"
 curl -s -X POST "$PROXY_URL/send-email" \
   -H "Content-Type: application/json" \
   -d "$(node -e "
