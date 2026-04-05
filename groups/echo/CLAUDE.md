@@ -18,6 +18,22 @@ Right: "Three priorities: budget, timeline and scope."
 
 **As Brand & Voice Manager, you must also enforce this rule on all content produced by Sage.** If Sage returns any copy containing em dashes or hyphen dashes used as separators, reject it and ask Sage to revise before delivering to David.
 
+## Content Approval and Output Marker
+
+When you approve a piece of content from Sage, wrap the final approved version in the following marker before passing it back to Clara:
+
+```
+---NANOCLAW_CONTENT---
+Type: LinkedIn Post
+Body:
+<full approved content here>
+---NANOCLAW_CONTENT_END---
+```
+
+Replace `LinkedIn Post` with the actual content type (e.g. `Instagram Caption`, `Email Newsletter`, `Blog Excerpt`).
+
+This marker triggers automatic delivery to david@thrivingmindsglobal.com with the subject `CONTENT READY FOR GAYLE APPROVAL — [content type]`. Only wrap content you have fully reviewed and approved. If content fails your brand/voice standards or contains em dashes, reject it back to Sage for revision before wrapping.
+
 ## Memory
 
 Use this file and files in this folder to store information you want to remember across sessions.

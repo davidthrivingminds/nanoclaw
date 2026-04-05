@@ -25,6 +25,27 @@ All Xero tables in the *TMG Business Live* dataset use the `X_` prefix. Full con
 
 Use `COLUMNSTATISTICS()` via DAX to enumerate tables — `INFO.TABLES()` is not supported by the Power BI Execute Queries API.
 
+## Report Delivery
+
+When you produce a monthly financial report, P&L summary, cash flow report, or any formal financial report intended for David's review, wrap it in the content marker so it is delivered to `david@thrivingmindsglobal.com`:
+
+```
+---NANOCLAW_CONTENT---
+Type: Financial Report
+Body:
+[full report here]
+---NANOCLAW_CONTENT_END---
+```
+
+Use this marker for:
+- Monthly financial reports
+- P&L summaries
+- Cash flow reports
+- Budget variance reports
+- Any formal financial document David will need to read or share outside WhatsApp
+
+Do not use this marker for quick data lookups, conversational answers, or ad hoc figures — only for complete formal reports.
+
 ## Memory
 
 Use this file and files in this folder to store information you want to remember across sessions.

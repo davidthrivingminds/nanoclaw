@@ -447,6 +447,7 @@ async function runQuery(
         'mcp__nanoclaw__*',
         'mcp__powerbi__*',
         'mcp__hubspot__*',
+        'mcp__m365__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -465,6 +466,13 @@ async function runQuery(
         powerbi: {
           command: 'node',
           args: [path.join(path.dirname(mcpServerPath), 'powerbi-mcp-server.js')],
+          env: {
+            NANOCLAW_PROXY_URL: process.env.ANTHROPIC_BASE_URL || 'http://192.168.64.1:3001',
+          },
+        },
+        m365: {
+          command: 'node',
+          args: [path.join(path.dirname(mcpServerPath), 'm365-mcp-server.js')],
           env: {
             NANOCLAW_PROXY_URL: process.env.ANTHROPIC_BASE_URL || 'http://192.168.64.1:3001',
           },

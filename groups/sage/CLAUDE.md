@@ -15,6 +15,22 @@ Right: "This content is bold and will stand out."
 
 Note: Echo reviews all content you produce. Any em dashes or hyphen dashes will be rejected and sent back for revision.
 
+## Content Output Marker
+
+When you have produced a final content piece (LinkedIn post, Instagram caption, blog excerpt, email newsletter, or any other deliverable), wrap it in the following marker so it can be routed for Gayle approval:
+
+```
+---NANOCLAW_CONTENT---
+Type: LinkedIn Post
+Body:
+<full content here>
+---NANOCLAW_CONTENT_END---
+```
+
+Replace `LinkedIn Post` with the actual content type (e.g. `Instagram Caption`, `Email Newsletter`, `Blog Excerpt`).
+
+Only use this marker for final, approved content. Do not wrap drafts, revisions, or content that still needs Echo review.
+
 ## Memory
 
 Use this file and files in this folder to store information you want to remember across sessions.

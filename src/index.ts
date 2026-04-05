@@ -23,6 +23,7 @@ import {
 import {
   ContainerOutput,
   runContainerAgent,
+  scanSubagentOutputs,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
@@ -197,6 +198,92 @@ export function _setRegisteredGroups(
 const DRAFT_EMAIL_START = '---NANOCLAW_DRAFT_EMAIL---';
 const DRAFT_EMAIL_END = '---NANOCLAW_DRAFT_EMAIL_END---';
 
+// ── Content output detection ──────────────────────────────────────────────────
+
+const CONTENT_START = '---NANOCLAW_CONTENT---';
+const CONTENT_END = '---NANOCLAW_CONTENT_END---';
+
+const CONTENT_RECIPIENT = 'david@thrivingmindsglobal.com';
+
+interface ContentOutput {
+  type: string;
+  body: string;
+}
+
+/** Parse a content marker block out of agent output.
+ *  Returns the extracted content fields and the text with the block removed,
+ *  or null if no marker is present. */
+function parseContentOutput(
+  text: string,
+): { content: ContentOutput; stripped: string } | null {
+  const startIdx = text.indexOf(CONTENT_START);
+  const endIdx = text.indexOf(CONTENT_END);
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null;
+
+  const block = text.slice(startIdx + CONTENT_START.length, endIdx).trim();
+  const lines = block.split('\n');
+
+  let type = '';
+  const bodyLines: string[] = [];
+  let inBody = false;
+
+  for (const line of lines) {
+    if (!inBody) {
+      if (line.startsWith('Type:')) {
+        type = line.slice(5).trim();
+      } else if (line.startsWith('Body:')) {
+        inBody = true;
+        const rest = line.slice(5).trim();
+        if (rest) bodyLines.push(rest);
+      }
+    } else {
+      bodyLines.push(line);
+    }
+  }
+
+  if (!type) return null;
+
+  const content: ContentOutput = { type, body: bodyLines.join('\n').trim() };
+
+  const before = text.slice(0, startIdx).trimEnd();
+  const after = text.slice(endIdx + CONTENT_END.length).trimStart();
+  const stripped = [before, after].filter(Boolean).join('\n\n');
+
+  return { content, stripped };
+}
+
+/** POST approved content to the credential proxy /send-email endpoint
+ *  for Gayle approval. */
+async function sendContentEmail(content: ContentOutput): Promise<void> {
+  const url = `http://${PROXY_BIND_HOST}:${CREDENTIAL_PROXY_PORT}/send-email`;
+  const payload = JSON.stringify({
+    subject: `CONTENT READY FOR GAYLE APPROVAL — ${content.type}`,
+    body: content.body,
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    if (res.ok) {
+      logger.info(
+        { to: CONTENT_RECIPIENT, type: content.type },
+        'Content email sent to inbox via credential proxy',
+      );
+    } else {
+      const responseBody = await res.text();
+      logger.error(
+        { status: res.status, responseBody },
+        'Content email send failed',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Content email send error');
+  }
+}
+
 interface DraftEmail {
   to: string;
   subject: string;
@@ -279,8 +366,27 @@ async function sendDraftEmail(email: DraftEmail): Promise<void> {
   }
 }
 
-/** Process raw agent output: detect draft email blocks, strip internal tags,
- *  deliver to the user. Returns true if any text was sent to the user. */
+// ── Marker deduplication ──────────────────────────────────────────────────────
+// Prevents double-sending when both processOutput (top-level Clara response)
+// and scanSubagentOutputs (sub-agent files) detect the same marker block.
+// Key = first 200 chars of content body; TTL = 60 seconds.
+
+const recentlyFiredMarkers = new Map<string, number>();
+
+function markerAlreadyFired(key: string): boolean {
+  const firedAt = recentlyFiredMarkers.get(key);
+  if (firedAt && Date.now() - firedAt < 60_000) return true;
+  recentlyFiredMarkers.set(key, Date.now());
+  // Prune stale entries to avoid unbounded growth
+  for (const [k, t] of recentlyFiredMarkers) {
+    if (Date.now() - t >= 60_000) recentlyFiredMarkers.delete(k);
+  }
+  return false;
+}
+
+/** Process raw agent output: detect draft email blocks, content output blocks,
+ *  strip internal tags, and deliver to the user.
+ *  Returns true if any text was sent to the user. */
 async function processOutput(
   raw: string,
   groupName: string,
@@ -291,10 +397,25 @@ async function processOutput(
   // Detect draft email block — fire send before stripping the marker
   const draftResult = parseDraftEmail(text);
   if (draftResult) {
-    sendDraftEmail(draftResult.email).catch((err) =>
-      logger.error({ err }, 'Failed to send draft email'),
-    );
+    const dedupeKey = `draft:${draftResult.email.subject}:${draftResult.email.body.slice(0, 200)}`;
+    if (!markerAlreadyFired(dedupeKey)) {
+      sendDraftEmail(draftResult.email).catch((err) =>
+        logger.error({ err }, 'Failed to send draft email'),
+      );
+    }
     text = draftResult.stripped;
+  }
+
+  // Detect content output block (Sage/Echo approved content) — send for Gayle approval
+  const contentResult = parseContentOutput(text);
+  if (contentResult) {
+    const dedupeKey = `content:${contentResult.content.type}:${contentResult.content.body.slice(0, 200)}`;
+    if (!markerAlreadyFired(dedupeKey)) {
+      sendContentEmail(contentResult.content).catch((err) =>
+        logger.error({ err }, 'Failed to send content email'),
+      );
+    }
+    text = contentResult.stripped;
   }
 
   // Strip <internal>...</internal> blocks
@@ -350,7 +471,10 @@ function cleanupStaleSessions(): void {
           fs.unlinkSync(path.join(projectPath, file));
           deleted++;
         } catch (err) {
-          logger.warn({ err, folder, file }, 'Session cleanup: failed to delete file');
+          logger.warn(
+            { err, folder, file },
+            'Session cleanup: failed to delete file',
+          );
         }
       }
     }
@@ -359,10 +483,7 @@ function cleanupStaleSessions(): void {
     cleared.push(folder);
   }
 
-  logger.info(
-    { deleted, cleared },
-    'Nightly session cleanup complete',
-  );
+  logger.info({ deleted, cleared }, 'Nightly session cleanup complete');
 }
 
 /** Schedule cleanupStaleSessions() to run at 2 AM local time every day. */
@@ -626,6 +747,7 @@ async function runAgent(
     : undefined;
 
   try {
+    const containerStartTime = Date.now();
     const output = await runContainerAgent(
       group,
       {
@@ -640,6 +762,44 @@ async function runAgent(
         queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
     );
+
+    // Scan sub-agent JSONL files written during this container run.
+    // Agent SDK Tasks (e.g. Sage/Echo spawned by Clara) write their results
+    // to subagents/*.jsonl on the host-mounted sessions directory.  Those
+    // results never flow through the container's stdout, so processOutput
+    // cannot see them.  We scan here and fire marker actions directly.
+    const subagentTexts = scanSubagentOutputs(group.folder, containerStartTime);
+    for (const text of subagentTexts) {
+      const draftResult = parseDraftEmail(text);
+      if (draftResult) {
+        const dedupeKey = `draft:${draftResult.email.subject}:${draftResult.email.body.slice(0, 200)}`;
+        if (!markerAlreadyFired(dedupeKey)) {
+          logger.info(
+            { group: group.name, subject: draftResult.email.subject },
+            'Draft email marker detected in sub-agent output',
+          );
+          sendDraftEmail(draftResult.email).catch((err) =>
+            logger.error({ err }, 'Failed to send draft email from sub-agent'),
+          );
+        }
+      }
+      const contentResult = parseContentOutput(text);
+      if (contentResult) {
+        const dedupeKey = `content:${contentResult.content.type}:${contentResult.content.body.slice(0, 200)}`;
+        if (!markerAlreadyFired(dedupeKey)) {
+          logger.info(
+            { group: group.name, type: contentResult.content.type },
+            'Content marker detected in sub-agent output',
+          );
+          sendContentEmail(contentResult.content).catch((err) =>
+            logger.error(
+              { err },
+              'Failed to send content email from sub-agent',
+            ),
+          );
+        }
+      }
+    }
 
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;

@@ -55,6 +55,9 @@ export interface ProxyConfig {
 // Power BI token cache (module-level — shared across all requests)
 let pbTokenCache: { value: string; expiresAt: number } | null = null;
 
+// Graph token cache — 50-minute TTL (tokens valid 60 min, refresh 10 min early)
+let graphTokenCache: { value: string; expiresAt: number } | null = null;
+
 async function fetchPowerBIToken(
   tenantId: string,
   clientId: string,
@@ -164,6 +167,20 @@ async function fetchGraphToken(
     tokenReq.write(body);
     tokenReq.end();
   });
+}
+
+async function fetchGraphTokenCached(
+  tenantId: string,
+  clientId: string,
+  clientSecret: string,
+): Promise<string> {
+  const now = Date.now();
+  if (graphTokenCache && graphTokenCache.expiresAt > now + 60_000) {
+    return graphTokenCache.value;
+  }
+  const token = await fetchGraphToken(tenantId, clientId, clientSecret);
+  graphTokenCache = { value: token, expiresAt: now + 50 * 60 * 1000 };
+  return token;
 }
 
 async function fetchGraphData(token: string, path: string): Promise<unknown> {
@@ -573,6 +590,125 @@ export function startCredentialProxy(
               res.end(JSON.stringify(calData));
             } catch (err) {
               logger.error({ err }, 'Graph calendar fetch failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
+            return;
+          }
+
+          // ── Read inbox endpoint ──────────────────────────────────────────
+          if (req.url?.startsWith('/read-inbox') && req.method === 'GET') {
+            if (!graphEmailConfigured) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Graph not configured.' }));
+              return;
+            }
+            try {
+              const urlObj = new URL(req.url, 'http://localhost');
+              const count = Math.min(
+                parseInt(urlObj.searchParams.get('count') || '20', 10),
+                50,
+              );
+              const mailbox = 'david@thrivingmindsglobal.com';
+
+              const graphToken = await fetchGraphTokenCached(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
+
+              const inboxPath = `/v1.0/users/${encodeURIComponent(mailbox)}/mailFolders/inbox/messages?$select=id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId&$orderby=receivedDateTime%20desc&$top=${count}`;
+              const sentPath = `/v1.0/users/${encodeURIComponent(mailbox)}/mailFolders/sentitems/messages?$select=id,conversationId,sentDateTime&$orderby=sentDateTime%20desc&$top=100`;
+
+              const [inboxData, sentData] = await Promise.all([
+                fetchGraphData(graphToken, inboxPath),
+                fetchGraphData(graphToken, sentPath),
+              ]);
+
+              type GraphMessage = {
+                id: string;
+                subject: string;
+                from: { emailAddress: { name: string; address: string } };
+                receivedDateTime: string;
+                bodyPreview: string;
+                isRead: boolean;
+                conversationId: string;
+              };
+              type SentMessage = { conversationId: string };
+
+              const repliedConversations = new Set<string>(
+                (sentData as { value?: SentMessage[] }).value?.map(
+                  (m) => m.conversationId,
+                ) ?? [],
+              );
+
+              const now = Date.now();
+              const emails = (
+                (inboxData as { value?: GraphMessage[] }).value ?? []
+              ).map((m) => {
+                const ageMs = now - new Date(m.receivedDateTime).getTime();
+                const ageHours = ageMs / (1000 * 60 * 60);
+                return {
+                  id: m.id,
+                  subject: m.subject,
+                  from: m.from.emailAddress.address,
+                  fromName: m.from.emailAddress.name,
+                  date: m.receivedDateTime,
+                  snippet: m.bodyPreview,
+                  isRead: m.isRead,
+                  conversationId: m.conversationId,
+                  unreplied:
+                    ageHours > 24 &&
+                    !repliedConversations.has(m.conversationId),
+                  ageHours: Math.round(ageHours * 10) / 10,
+                };
+              });
+
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  emails,
+                  unreadCount: emails.filter((e) => !e.isRead).length,
+                  unrepliedCount: emails.filter((e) => e.unreplied).length,
+                }),
+              );
+            } catch (err) {
+              logger.error({ err }, 'Read inbox failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
+            return;
+          }
+
+          // ── Read email endpoint ──────────────────────────────────────────
+          if (req.url?.startsWith('/read-email') && req.method === 'GET') {
+            if (!graphEmailConfigured) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Graph not configured.' }));
+              return;
+            }
+            try {
+              const urlObj = new URL(req.url, 'http://localhost');
+              const id = urlObj.searchParams.get('id');
+              if (!id) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(
+                  JSON.stringify({ error: 'id query parameter required' }),
+                );
+                return;
+              }
+              const mailbox = 'david@thrivingmindsglobal.com';
+              const graphToken = await fetchGraphTokenCached(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
+              const emailPath = `/v1.0/users/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(id)}?$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,conversationId`;
+              const emailData = await fetchGraphData(graphToken, emailPath);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(emailData));
+            } catch (err) {
+              logger.error({ err }, 'Read email failed');
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: (err as Error).message }));
             }

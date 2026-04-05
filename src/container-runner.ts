@@ -672,6 +672,90 @@ export async function runContainerAgent(
   });
 }
 
+/**
+ * Scan sub-agent JSONL session files written after `since` (epoch ms) and
+ * return the text content of every assistant message found.  Used by the
+ * host to detect NANOCLAW_CONTENT / NANOCLAW_DRAFT_EMAIL markers that live
+ * inside Agent-SDK sub-agent responses and never surface in the top-level
+ * container stdout.
+ */
+export function scanSubagentOutputs(
+  groupFolder: string,
+  since: number,
+): string[] {
+  const sessionsDir = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+    'projects',
+    '-workspace-group',
+  );
+  if (!fs.existsSync(sessionsDir)) return [];
+
+  const texts: string[] = [];
+
+  let sessionEntries: fs.Dirent[];
+  try {
+    sessionEntries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  for (const sessionEntry of sessionEntries) {
+    if (!sessionEntry.isDirectory()) continue;
+    const subagentsDir = path.join(
+      sessionsDir,
+      sessionEntry.name,
+      'subagents',
+    );
+    if (!fs.existsSync(subagentsDir)) continue;
+
+    let files: string[];
+    try {
+      files = fs.readdirSync(subagentsDir);
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith('.jsonl')) continue;
+      const filePath = path.join(subagentsDir, file);
+      try {
+        if (fs.statSync(filePath).mtimeMs < since) continue;
+        const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line);
+            // Only assistant-role messages from the sub-agent itself —
+            // not tool_result entries (which contain other agents' CLAUDE.md text)
+            if (
+              entry.type === 'assistant' &&
+              entry.message?.role === 'assistant'
+            ) {
+              const content = entry.message.content;
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'text' && typeof block.text === 'string') {
+                    texts.push(block.text);
+                  }
+                }
+              }
+            }
+          } catch {
+            // skip unparseable lines
+          }
+        }
+      } catch {
+        // skip unreadable files
+      }
+    }
+  }
+
+  return texts;
+}
+
 export function writeTasksSnapshot(
   groupFolder: string,
   isMain: boolean,
