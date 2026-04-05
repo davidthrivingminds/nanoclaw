@@ -704,11 +704,7 @@ export function scanSubagentOutputs(
 
   for (const sessionEntry of sessionEntries) {
     if (!sessionEntry.isDirectory()) continue;
-    const subagentsDir = path.join(
-      sessionsDir,
-      sessionEntry.name,
-      'subagents',
-    );
+    const subagentsDir = path.join(sessionsDir, sessionEntry.name, 'subagents');
     if (!fs.existsSync(subagentsDir)) continue;
 
     let files: string[];

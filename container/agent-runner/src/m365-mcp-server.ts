@@ -9,7 +9,9 @@
  * Tools:
  *   m365_list_inbox      — list recent emails with sender, subject, date, snippet
  *   m365_get_email       — fetch full body of a specific email by ID
- *   m365_list_unreplied  — emails older than N hours with no reply sent
+ *   m365_list_unreplied           — emails older than N hours with no reply sent
+ *   m365_list_calendar_events     — upcoming events for david@thrivingmindsglobal.com
+ *   m365_list_clara_calendar_events — upcoming events for clara@thrivingmindsglobal.com
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -248,6 +250,129 @@ server.tool(
         lines.push('');
       }
 
+      return { content: [{ type: 'text' as const, text: lines.join('\n').trimEnd() }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${formatError(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ── calendar helpers ──────────────────────────────────────────────────────
+
+interface CalendarEvent {
+  subject?: string;
+  start?: { dateTime?: string; timeZone?: string };
+  end?: { dateTime?: string; timeZone?: string };
+  location?: { displayName?: string };
+  organizer?: { emailAddress?: { name?: string; address?: string } };
+  bodyPreview?: string;
+}
+
+function formatEvent(e: CalendarEvent, index: number): string {
+  const fmt = (dt?: string) => {
+    if (!dt) return '?';
+    return new Date(dt).toLocaleString('en-AU', {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit',
+    });
+  };
+  const organizer = e.organizer?.emailAddress?.name || e.organizer?.emailAddress?.address || '';
+  const location = e.location?.displayName ? `\n   Where: ${e.location.displayName}` : '';
+  const org = organizer ? `\n   Organiser: ${organizer}` : '';
+  return [
+    `${index + 1}. ${e.subject ?? '(no subject)'}`,
+    `   Start: ${fmt(e.start?.dateTime)}`,
+    `   End:   ${fmt(e.end?.dateTime)}${location}${org}`,
+  ].join('\n');
+}
+
+async function fetchCalendarEvents(
+  mailbox: string,
+  days: number,
+): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({
+    mailbox,
+    days: String(days),
+    top: '50',
+  });
+  const url = `${PROXY_URL}/graph-calendar?${params}`;
+  const res = await fetch(url);
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      detail = parsed.error || text;
+    } catch { /* use raw */ }
+    throw new Error(`M365 /graph-calendar ${res.status}: ${detail}`);
+  }
+  const data = JSON.parse(text) as { value?: CalendarEvent[] };
+  return data.value ?? [];
+}
+
+// ── m365_list_calendar_events ─────────────────────────────────────────────
+server.tool(
+  'm365_list_calendar_events',
+  "List upcoming calendar events for david@thrivingmindsglobal.com. Returns subject, start/end times, location, and organiser for each event.",
+  {
+    days: z
+      .number()
+      .int()
+      .min(1)
+      .max(90)
+      .optional()
+      .describe('Number of days ahead to look (default 7, max 90)'),
+  },
+  async (args) => {
+    try {
+      const days = args.days ?? 7;
+      const events = await fetchCalendarEvents('david@thrivingmindsglobal.com', days);
+      if (events.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No calendar events in the next ${days} day${days === 1 ? '' : 's'}.` }] };
+      }
+      const lines = [
+        `David's calendar — next ${days} day${days === 1 ? '' : 's'} (${events.length} event${events.length === 1 ? '' : 's'}):`,
+        '',
+        ...events.flatMap((e, i) => [formatEvent(e, i), '']),
+      ];
+      return { content: [{ type: 'text' as const, text: lines.join('\n').trimEnd() }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${formatError(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ── m365_list_clara_calendar_events ──────────────────────────────────────
+server.tool(
+  'm365_list_clara_calendar_events',
+  "List upcoming calendar events for clara@thrivingmindsglobal.com (Clara's own workforce calendar). Returns subject, start/end times, location, and organiser.",
+  {
+    days: z
+      .number()
+      .int()
+      .min(1)
+      .max(90)
+      .optional()
+      .describe('Number of days ahead to look (default 7, max 90)'),
+  },
+  async (args) => {
+    try {
+      const days = args.days ?? 7;
+      const events = await fetchCalendarEvents('clara@thrivingmindsglobal.com', days);
+      if (events.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No calendar events in the next ${days} day${days === 1 ? '' : 's'}.` }] };
+      }
+      const lines = [
+        `Clara's calendar — next ${days} day${days === 1 ? '' : 's'} (${events.length} event${events.length === 1 ? '' : 's'}):`,
+        '',
+        ...events.flatMap((e, i) => [formatEvent(e, i), '']),
+      ];
       return { content: [{ type: 'text' as const, text: lines.join('\n').trimEnd() }] };
     } catch (err) {
       return {

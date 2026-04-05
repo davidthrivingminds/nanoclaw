@@ -577,13 +577,21 @@ export function startCredentialProxy(
                 secrets.POWERBI_CLIENT_SECRET!,
               );
 
+              const days = Math.min(
+                parseInt(urlObj.searchParams.get('days') || '7', 10),
+                90,
+              );
+              const top = Math.min(
+                parseInt(urlObj.searchParams.get('top') || '50', 10),
+                100,
+              );
               const now = new Date();
-              const weekAhead = new Date(
-                now.getTime() + 7 * 24 * 60 * 60 * 1000,
+              const endDate = new Date(
+                now.getTime() + days * 24 * 60 * 60 * 1000,
               );
               const startDT = now.toISOString();
-              const endDT = weekAhead.toISOString();
-              const calPath = `/v1.0/users/${encodeURIComponent(mailbox)}/calendarView?startDateTime=${startDT}&endDateTime=${endDT}&$select=subject,start,end,location,attendees,bodyPreview&$orderby=start/dateTime&$top=20`;
+              const endDT = endDate.toISOString();
+              const calPath = `/v1.0/users/${encodeURIComponent(mailbox)}/calendarView?startDateTime=${startDT}&endDateTime=${endDT}&$select=subject,start,end,location,organizer,attendees,bodyPreview&$orderby=start/dateTime&$top=${top}`;
 
               const calData = await fetchGraphData(graphToken, calPath);
               res.writeHead(200, { 'Content-Type': 'application/json' });
