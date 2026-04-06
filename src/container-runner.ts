@@ -15,6 +15,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   SKILLS_PATH,
+  TASK_BOARD_PATH,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -215,6 +216,30 @@ function buildVolumeMounts(
       containerPath: '/workspace/extra/skills',
       readonly: true,
     });
+  }
+
+  // ── OneDrive shared workspace folders ──────────────────────────────────────
+  // Derive the TMG base from TASK_BOARD_PATH (.../Task_Board/..) so a single
+  // env var covers all five sibling directories.
+  if (TASK_BOARD_PATH && fs.existsSync(TASK_BOARD_PATH)) {
+    const tmgBase = path.dirname(TASK_BOARD_PATH);
+
+    const sharedMounts: Array<{ subdir: string; containerPath: string }> = [
+      { subdir: 'Clara_Outbox',     containerPath: '/workspace/extra/outbox' },
+      { subdir: 'Legal_Drafts',     containerPath: '/workspace/extra/legal' },
+      { subdir: 'Reports',          containerPath: '/workspace/extra/reports' },
+      { subdir: 'Task_Board',       containerPath: '/workspace/extra/task_board' },
+      { subdir: 'Proposed_Updates', containerPath: '/workspace/extra/proposed_updates' },
+    ];
+
+    for (const { subdir, containerPath } of sharedMounts) {
+      const hostPath = path.join(tmgBase, subdir);
+      if (!fs.existsSync(hostPath)) continue;
+      // Proposed_Updates: read-write for Axiom only, read-only for all others
+      const readonly =
+        subdir === 'Proposed_Updates' ? group.folder !== 'axiom' : false;
+      mounts.push({ hostPath, containerPath, readonly });
+    }
   }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
