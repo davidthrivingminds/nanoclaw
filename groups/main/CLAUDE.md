@@ -155,11 +155,19 @@ Main has read-only access to the project and read-write access to its group fold
 |----------------|-----------|--------|
 | `/workspace/project` | Project root | read-only |
 | `/workspace/group` | `groups/main/` | read-write |
+| `/workspace/extra/skills` | OneDrive `Skill Files/` | read-only |
+| `/workspace/extra/outbox` | OneDrive `Clara_Outbox/` | read-write |
+| `/workspace/extra/task_board` | OneDrive `Task_Board/` | read-write |
+| `/workspace/extra/legal` | OneDrive `Legal_Drafts/` | read-write |
+| `/workspace/extra/reports` | OneDrive `Reports/` | read-write |
+| `/workspace/extra/proposed_updates` | OneDrive `Proposed_Updates/` | read-only |
 
 Key paths inside the container:
-- `/workspace/project/store/messages.db` - SQLite database
-- `/workspace/project/store/messages.db` (registered_groups table) - Group config
-- `/workspace/project/groups/` - All group folders
+- `/workspace/project/store/messages.db` — SQLite database
+- `/workspace/project/groups/` — All group folders
+- `/workspace/extra/outbox/` — Save files for David's outbox here
+- `/workspace/extra/task_board/kanban.json` — Kanban board (read/write)
+- `/workspace/extra/task_board/tasks.json` — NanoClaw scheduler snapshot (read-only, do not write)
 
 ---
 

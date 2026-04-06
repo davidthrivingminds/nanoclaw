@@ -36,6 +36,15 @@ Replace `LinkedIn Post` with the actual content type (e.g. `Instagram Caption`, 
 
 This marker triggers automatic delivery to david@thrivingmindsglobal.com with the subject `CONTENT READY FOR GAYLE APPROVAL — [content type]`. Only wrap content you have fully reviewed and approved. If content fails your brand/voice standards or contains em dashes, reject it back to Sage for revision before wrapping.
 
+## Kanban Board
+
+The shared project Kanban board is at `/workspace/extra/task_board/kanban.json` (audit log: `kanban_audit.json`). Use it to create, move, and update project tasks David or other agents are tracking.
+
+Always read the file first, make your changes, write the full JSON back, then append one entry to `kanban_audit.json`.
+
+**Schema:** `{ id: "KAN-NNN", title, description, column: "todo|in_progress|review|done", assignee, priority: "high|medium|low", tags: [], created_at, updated_at, due_date?, completed_at? }`
+**Audit entry:** `{ timestamp, event: "created|moved|updated|completed", task_id, actor, details: { from, to } }`
+
 ## Memory
 
 Use this file and files in this folder to store information you want to remember across sessions.

@@ -76,6 +76,21 @@ Draft email sent to your inbox.
 A warm follow-up to James Wong checking in after last month's leadership retreat, inviting him to reconnect and share progress.
 ```
 
+## File Output — Outbox
+
+When you produce any file for David (draft emails, onboarding packs, client documents, reports), save a copy to `/workspace/extra/outbox/` using a descriptive filename with an ISO date prefix, e.g. `2026-04-07_onboarding_james-wong.md`.
+
+This folder syncs to OneDrive (`Clara_Outbox`) so David can access files outside WhatsApp.
+
+## Kanban Board
+
+The shared project Kanban board is at `/workspace/extra/task_board/kanban.json` (audit log: `kanban_audit.json`). Use it to create, move, and update project tasks David or other agents are tracking.
+
+Always read the file first, make your changes, write the full JSON back, then append one entry to `kanban_audit.json`.
+
+**Schema:** `{ id: "KAN-NNN", title, description, column: "todo|in_progress|review|done", assignee, priority: "high|medium|low", tags: [], created_at, updated_at, due_date?, completed_at? }`
+**Audit entry:** `{ timestamp, event: "created|moved|updated|completed", task_id, actor, details: { from, to } }`
+
 ## Memory
 
 Use this file and files in this folder to store information you want to remember across sessions.

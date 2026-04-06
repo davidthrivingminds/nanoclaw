@@ -225,11 +225,14 @@ function buildVolumeMounts(
     const tmgBase = path.dirname(TASK_BOARD_PATH);
 
     const sharedMounts: Array<{ subdir: string; containerPath: string }> = [
-      { subdir: 'Clara_Outbox',     containerPath: '/workspace/extra/outbox' },
-      { subdir: 'Legal_Drafts',     containerPath: '/workspace/extra/legal' },
-      { subdir: 'Reports',          containerPath: '/workspace/extra/reports' },
-      { subdir: 'Task_Board',       containerPath: '/workspace/extra/task_board' },
-      { subdir: 'Proposed_Updates', containerPath: '/workspace/extra/proposed_updates' },
+      { subdir: 'Clara_Outbox', containerPath: '/workspace/extra/outbox' },
+      { subdir: 'Legal_Drafts', containerPath: '/workspace/extra/legal' },
+      { subdir: 'Reports', containerPath: '/workspace/extra/reports' },
+      { subdir: 'Task_Board', containerPath: '/workspace/extra/task_board' },
+      {
+        subdir: 'Proposed_Updates',
+        containerPath: '/workspace/extra/proposed_updates',
+      },
     ];
 
     for (const { subdir, containerPath } of sharedMounts) {
