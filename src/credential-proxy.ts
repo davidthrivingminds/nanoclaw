@@ -604,6 +604,134 @@ export function startCredentialProxy(
             return;
           }
 
+          // ── Create calendar event endpoint ──────────────────────────────
+          if (req.url === '/create-calendar-event' && req.method === 'POST') {
+            if (!graphEmailConfigured) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Graph not configured.' }));
+              return;
+            }
+            try {
+              const payload = JSON.parse(body.toString()) as {
+                subject?: string;
+                start?: string;
+                end?: string;
+                description?: string;
+                isAllDay?: boolean;
+                mailbox?: string;
+              };
+              const mailbox =
+                payload.mailbox || 'clara@thrivingmindsglobal.com';
+              if (!authorisedMailboxes.includes(mailbox.toLowerCase())) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(
+                  JSON.stringify({
+                    error: `Mailbox ${mailbox} is not on the authorised list.`,
+                  }),
+                );
+                return;
+              }
+              if (!payload.subject || !payload.start || !payload.end) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(
+                  JSON.stringify({
+                    error: 'subject, start, and end are required',
+                  }),
+                );
+                return;
+              }
+
+              const graphToken = await fetchGraphTokenCached(
+                secrets.POWERBI_TENANT_ID!,
+                secrets.POWERBI_CLIENT_ID!,
+                secrets.POWERBI_CLIENT_SECRET!,
+              );
+
+              const eventBody: Record<string, unknown> = {
+                subject: payload.subject,
+                start: {
+                  dateTime: payload.start,
+                  timeZone: 'Australia/Brisbane',
+                },
+                end: { dateTime: payload.end, timeZone: 'Australia/Brisbane' },
+                isAllDay: payload.isAllDay ?? false,
+              };
+              if (payload.description) {
+                eventBody['body'] = {
+                  contentType: 'Text',
+                  content: payload.description,
+                };
+              }
+
+              const eventJson = JSON.stringify(eventBody);
+              const created = await new Promise<unknown>((resolve, reject) => {
+                const createReq = httpsRequest(
+                  {
+                    hostname: 'graph.microsoft.com',
+                    port: 443,
+                    path: `/v1.0/users/${encodeURIComponent(mailbox)}/events`,
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${graphToken}`,
+                      'Content-Type': 'application/json',
+                      'Content-Length': Buffer.byteLength(eventJson),
+                    },
+                  },
+                  (r) => {
+                    const c: Buffer[] = [];
+                    r.on('data', (d: Buffer) => c.push(d));
+                    r.on('end', () => {
+                      const text = Buffer.concat(c).toString();
+                      if (
+                        r.statusCode &&
+                        r.statusCode >= 200 &&
+                        r.statusCode < 300
+                      ) {
+                        try {
+                          resolve(JSON.parse(text));
+                        } catch {
+                          resolve(text);
+                        }
+                      } else {
+                        reject(
+                          new Error(
+                            `Graph create event ${r.statusCode}: ${text}`,
+                          ),
+                        );
+                      }
+                    });
+                  },
+                );
+                createReq.on('error', reject);
+                createReq.write(eventJson);
+                createReq.end();
+              });
+
+              const createdEvent = created as {
+                id?: string;
+                subject?: string;
+                webLink?: string;
+              };
+              logger.info(
+                { mailbox, subject: payload.subject, id: createdEvent.id },
+                'Calendar event created via Microsoft Graph',
+              );
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  ok: true,
+                  id: createdEvent.id,
+                  webLink: createdEvent.webLink,
+                }),
+              );
+            } catch (err) {
+              logger.error({ err }, 'Create calendar event failed');
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (err as Error).message }));
+            }
+            return;
+          }
+
           // ── Read inbox endpoint ──────────────────────────────────────────
           if (req.url?.startsWith('/read-inbox') && req.method === 'GET') {
             if (!graphEmailConfigured) {

@@ -10,8 +10,9 @@
  *   m365_list_inbox      — list recent emails with sender, subject, date, snippet
  *   m365_get_email       — fetch full body of a specific email by ID
  *   m365_list_unreplied           — emails older than N hours with no reply sent
- *   m365_list_calendar_events     — upcoming events for david@thrivingmindsglobal.com
+ *   m365_list_calendar_events       — upcoming events for david@thrivingmindsglobal.com
  *   m365_list_clara_calendar_events — upcoming events for clara@thrivingmindsglobal.com
+ *   m365_create_calendar_event      — create an event on clara@thrivingmindsglobal.com
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -374,6 +375,56 @@ server.tool(
         ...events.flatMap((e, i) => [formatEvent(e, i), '']),
       ];
       return { content: [{ type: 'text' as const, text: lines.join('\n').trimEnd() }] };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${formatError(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ── m365_create_calendar_event ────────────────────────────────────────────
+server.tool(
+  'm365_create_calendar_event',
+  "Create a calendar event on Clara's workforce calendar (clara@thrivingmindsglobal.com). Times are interpreted as Australia/Brisbane (AEST). Returns the created event ID.",
+  {
+    subject: z.string().describe('Event title'),
+    start: z.string().describe('Start datetime in ISO 8601 format (e.g. 2026-04-10T09:00:00)'),
+    end: z.string().describe('End datetime in ISO 8601 format (e.g. 2026-04-10T10:00:00)'),
+    description: z.string().optional().describe('Optional event description or body text'),
+    isAllDay: z.boolean().optional().describe('Set to true for all-day events (default false)'),
+  },
+  async (args) => {
+    try {
+      const url = `${PROXY_URL}/create-calendar-event`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: args.subject,
+          start: args.start,
+          end: args.end,
+          description: args.description,
+          isAllDay: args.isAllDay,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          detail = parsed.error || text;
+        } catch { /* use raw */ }
+        throw new Error(`M365 /create-calendar-event ${res.status}: ${detail}`);
+      }
+      const data = JSON.parse(text) as { ok: boolean; id?: string; webLink?: string };
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Event created: "${args.subject}"\nID: ${data.id ?? 'unknown'}${data.webLink ? `\nLink: ${data.webLink}` : ''}`,
+        }],
+      };
     } catch (err) {
       return {
         content: [{ type: 'text' as const, text: `Error: ${formatError(err)}` }],

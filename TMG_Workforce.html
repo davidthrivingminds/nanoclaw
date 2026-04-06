@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TMG AI Workforce</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', -apple-system, sans-serif; background: #1a1a1a; color: #f0f0f0; min-height: 100vh; }
+
+  /* ── HEADER ── */
+  header { background: #262626; border-bottom: 3px solid #FCC127; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo-mark { width: 38px; height: 38px; background: #FCC127; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 17px; color: #262626; flex-shrink: 0; }
+  .header-title { font-size: 17px; font-weight: 700; color: #fff; }
+  .header-sub { font-size: 11px; color: #888; margin-top: 1px; }
+  .header-center { display: flex; align-items: center; }
+  .view-toggle { display: flex; background: #1a1a1a; border-radius: 8px; padding: 3px; gap: 2px; }
+  .toggle-btn { font-size: 13px; font-weight: 600; padding: 7px 18px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.18s; background: transparent; color: #666; }
+  .toggle-btn.active { background: #FCC127; color: #262626; }
+  .toggle-btn:not(.active):hover { color: #bbb; background: #2a2a2a; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .last-updated { font-size: 11px; color: #666; }
+  .btn { border: none; border-radius: 6px; padding: 7px 14px; font-weight: 700; font-size: 12px; cursor: pointer; transition: opacity 0.2s; }
+  .btn-primary { background: #FCC127; color: #262626; }
+  .btn-save { background: #4CAF50; color: #fff; display: none; }
+  .btn:hover { opacity: 0.85; }
+
+  /* ── STATUS BAR ── */
+  .status-bar { padding: 9px 32px; font-size: 12px; display: none; }
+  .status-bar.live    { background: #1e2a1e; color: #6fcf6f; border-bottom: 1px solid #2a3a2a; display: block; }
+  .status-bar.loading { background: #1a2030; color: #70a0f0; border-bottom: 1px solid #2a3040; display: block; }
+  .status-bar.pending { background: #1a2030; color: #70a0f0; border-bottom: 1px solid #2a3040; display: block; }
+  .status-bar.error   { background: #2a1515; color: #f07070; border-bottom: 1px solid #3a2020; display: block; }
+
+  /* ── VIEWS ── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ════════════════════════════════════════════════════════════
+     KANBAN
+  ════════════════════════════════════════════════════════════ */
+  .summary-bar { background: #262626; padding: 10px 32px; display: flex; gap: 20px; border-bottom: 1px solid #333; flex-wrap: wrap; align-items: center; }
+  .summary-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .summary-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .summary-count { font-weight: 700; font-size: 14px; }
+
+  .board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; padding: 20px 32px; min-height: calc(100vh - 160px); }
+  .column { background: #262626; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .column-header { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #333; }
+  .column-title { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+  .column-count { background: #333; color: #aaa; border-radius: 12px; padding: 2px 7px; font-size: 11px; font-weight: 600; }
+  .column-body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+
+  .col-todo .column-header        { border-top: 3px solid #666; } .col-todo .column-title        { color: #999; }
+  .col-in_progress .column-header { border-top: 3px solid #4A9EFF; } .col-in_progress .column-title { color: #4A9EFF; }
+  .col-review .column-header      { border-top: 3px solid #FCC127; } .col-review .column-title      { color: #FCC127; }
+  .col-done .column-header        { border-top: 3px solid #4CAF50; } .col-done .column-title        { color: #4CAF50; }
+  .col-cancelled .column-header   { border-top: 3px solid #555; } .col-cancelled .column-title   { color: #666; }
+
+  .card { background: #1a1a1a; border-radius: 8px; padding: 11px; border-left: 3px solid transparent; transition: transform 0.15s, box-shadow 0.15s; position: relative; }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  .card.todo { border-left-color: #555; } .card.in_progress { border-left-color: #4A9EFF; }
+  .card.review { border-left-color: #FCC127; } .card.done { border-left-color: #4CAF50; opacity: 0.7; }
+  .card.cancelled { border-left-color: #444; opacity: 0.5; }
+  .card-id { font-size: 10px; color: #555; margin-bottom: 3px; font-family: 'DM Mono', monospace; }
+  .card-title { font-size: 13px; font-weight: 600; color: #eee; margin-bottom: 5px; line-height: 1.4; padding-right: 22px; }
+  .card-desc { font-size: 11px; color: #666; margin-bottom: 7px; line-height: 1.4; }
+  .card-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 3px; }
+  .card-footer { display: flex; align-items: center; gap: 5px; margin-top: 7px; flex-wrap: wrap; }
+  .delete-btn { position: absolute; top: 7px; right: 7px; background: none; border: none; cursor: pointer; color: #444; font-size: 13px; padding: 2px 4px; border-radius: 4px; transition: background 0.15s, color 0.15s; display: none; }
+  .card:hover .delete-btn { display: block; }
+  .delete-btn:hover { background: #3d1515; color: #f07070; }
+  .priority-badge { font-size: 10px; font-weight: 700; padding: 2px 5px; border-radius: 4px; }
+  .priority-high { background: #3d1515; color: #f07070; } .priority-medium { background: #2d2510; color: #f0b84a; } .priority-low { background: #1a1a2d; color: #70a0f0; }
+  .tag { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #2a2a2a; color: #666; text-transform: uppercase; }
+  .due-date { font-size: 10px; color: #555; } .due-soon { color: #f0b84a; } .overdue { color: #f07070; }
+  .empty-col { text-align: center; color: #444; font-size: 11px; padding: 20px 8px; }
+
+  /* ════════════════════════════════════════════════════════════
+     SCHEDULER
+  ════════════════════════════════════════════════════════════ */
+  .stats-row { display: flex; background: #222; border-bottom: 1px solid #333; }
+  .stat-card { flex: 1; padding: 10px 16px; border-right: 1px solid #333; text-align: center; }
+  .stat-card:last-child { border-right: none; }
+  .stat-val { font-size: 18px; font-weight: 800; color: #FCC127; font-family: 'DM Mono', monospace; }
+  .stat-label { font-size: 9px; color: #666; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  .filter-bar { background: #262626; padding: 12px 32px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid #333; flex-wrap: wrap; }
+  .filter-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.8px; font-family: 'DM Mono', monospace; white-space: nowrap; }
+  .filter-group { display: flex; gap: 5px; flex-wrap: wrap; }
+  .filter-chip { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 20px; background: #333; color: #888; border: 1.5px solid transparent; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .filter-chip:hover { border-color: #555; color: #ccc; }
+  .filter-chip.active { background: #FCC127; color: #262626; border-color: #FCC127; }
+  .filter-divider { width: 1px; background: #333; height: 24px; align-self: center; }
+  .search-input { background: #333; border: 1.5px solid #444; color: #f0f0f0; border-radius: 6px; padding: 4px 11px; font-size: 12px; width: 180px; font-family: 'DM Sans', sans-serif; }
+  .search-input:focus { outline: none; border-color: #FCC127; }
+  .search-input::placeholder { color: #555; }
+
+  .sched-main { padding: 20px 32px; }
+  .timeline-section { margin-bottom: 28px; }
+  .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .section-label { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1.2px; font-family: 'DM Mono', monospace; white-space: nowrap; }
+  .section-line { flex: 1; height: 1px; background: #2a2a2a; }
+  .section-count { font-size: 10px; color: #444; font-family: 'DM Mono', monospace; }
+
+  .task-row { display: grid; grid-template-columns: 140px 180px 130px 1fr 160px; gap: 0; background: #222; border-radius: 10px; margin-bottom: 7px; border: 1px solid #2a2a2a; overflow: hidden; transition: border-color 0.15s, box-shadow 0.15s; }
+  .task-row:hover { border-color: #3a3a3a; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+  .task-cell { padding: 12px 14px; display: flex; flex-direction: column; justify-content: center; border-right: 1px solid #2a2a2a; }
+  .task-cell:last-child { border-right: none; }
+  .cell-time .time-date { font-size: 13px; font-weight: 700; color: #eee; }
+  .cell-time .time-clock { font-size: 11px; color: #666; margin-top: 2px; font-family: 'DM Mono', monospace; }
+  .cell-time .time-rel { font-size: 10px; color: #555; margin-top: 1px; }
+  .freq-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 6px; white-space: nowrap; }
+  .freq-daily { background: #1a2030; color: #70a0f0; } .freq-weekly { background: #2d2510; color: #f0b84a; }
+  .freq-monthly { background: #2d1520; color: #f07090; } .freq-quarterly { background: #2d2540; color: #a992f0; }
+  .freq-once { background: #1e2a1e; color: #6fcf6f; } .freq-interval { background: #1a2530; color: #70c0f0; }
+  .cell-desc .task-name { font-size: 13px; font-weight: 600; color: #ddd; margin-bottom: 3px; }
+  .cell-desc .task-desc { font-size: 11px; color: #666; line-height: 1.4; }
+  .cell-lastrun .lr-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; font-family: 'DM Mono', monospace; }
+  .cell-lastrun .lr-val { font-size: 12px; color: #777; }
+  .cell-lastrun .lr-result { font-size: 10px; color: #555; margin-top: 2px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lr-never { color: #444; font-style: italic; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+  .dot-active { background: #4CAF50; } .dot-inactive { background: #555; }
+  .task-row.freq-daily-row { border-left: 3px solid #4A9EFF; } .task-row.freq-weekly-row { border-left: 3px solid #f0b84a; }
+  .task-row.freq-monthly-row { border-left: 3px solid #f07090; } .task-row.freq-quarterly-row { border-left: 3px solid #a992f0; }
+  .task-row.freq-once-row { border-left: 3px solid #6fcf6f; } .task-row.freq-interval-row { border-left: 3px solid #70c0f0; }
+  .col-headers { display: grid; grid-template-columns: 140px 180px 130px 1fr 160px; gap: 0; padding: 0 0 6px 0; }
+  .col-hdr { padding: 0 14px; font-size: 10px; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: 0.8px; font-family: 'DM Mono', monospace; }
+  .sched-empty { text-align: center; color: #444; font-size: 14px; padding: 64px 32px; }
+
+  /* Shared agent badge */
+  .agent-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px; display: inline-block; }
+  .agent-Clara   { background: #2d2540; color: #a992f0; } .agent-Scout { background: #2d2540; color: #a992f0; }
+  .agent-Felix   { background: #1a2d1a; color: #6fcf6f; } .agent-Sage  { background: #1a2d1a; color: #6fcf6f; } .agent-Grace { background: #1a2d1a; color: #6fcf6f; }
+  .agent-Sterling{ background: #2d2510; color: #f0b84a; } .agent-Atlas { background: #2d2510; color: #f0b84a; }
+  .agent-Echo    { background: #2d1515; color: #f07070; }
+  .agent-Knox    { background: #151f2d; color: #70a0f0; }
+  .agent-Lex     { background: #2d1520; color: #f07090; }
+  .agent-Axiom   { background: #1a2530; color: #70c0f0; }
+  .agent-Vera    { background: #252520; color: #c0c070; }
+
+  /* ── MODAL ── */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.visible { display: flex; }
+  .modal { background: #262626; border: 1px solid #444; border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; }
+  .modal h3 { font-size: 16px; margin-bottom: 8px; color: #fff; }
+  .modal p { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .modal-task { font-size: 13px; font-weight: 600; color: #eee; background: #1a1a1a; border-radius: 6px; padding: 10px 12px; margin-bottom: 20px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  @media (max-width: 1100px) { .board { grid-template-columns: repeat(3,1fr); } .task-row, .col-headers { grid-template-columns: 120px 150px 110px 1fr 140px; } }
+  @media (max-width: 700px)  { .board { grid-template-columns: repeat(2,1fr); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo-mark">T</div>
+    <div>
+      <div class="header-title">TMG AI Workforce</div>
+      <div class="header-sub">Purpose in Practice™</div>
+    </div>
+  </div>
+  <div class="header-center">
+    <div class="view-toggle">
+      <button class="toggle-btn active" id="btnKanban" onclick="switchView('kanban')">📋 Kanban</button>
+      <button class="toggle-btn" id="btnScheduler" onclick="switchView('scheduler')">🗓 Scheduler</button>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="last-updated" id="lastUpdated">Connecting...</span>
+    <button class="btn btn-save" id="saveBtn" onclick="saveChanges()">💾 Save</button>
+    <button class="btn btn-primary" onclick="refreshCurrent()">↻ Refresh</button>
+  </div>
+</header>
+
+<div class="status-bar loading" id="statusBar">Connecting to local server...</div>
+
+<!-- ── KANBAN VIEW ── -->
+<div class="view active" id="viewKanban">
+  <div class="summary-bar" id="summaryBar"></div>
+  <div class="board" id="board"></div>
+</div>
+
+<!-- ── SCHEDULER VIEW ── -->
+<div class="view" id="viewScheduler">
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card"><div class="stat-val" id="sTotal">—</div><div class="stat-label">Total</div></div>
+    <div class="stat-card"><div class="stat-val" id="sDaily">—</div><div class="stat-label">Daily</div></div>
+    <div class="stat-card"><div class="stat-val" id="sWeekly">—</div><div class="stat-label">Weekly</div></div>
+    <div class="stat-card"><div class="stat-val" id="sMonthly">—</div><div class="stat-label">Monthly+</div></div>
+    <div class="stat-card"><div class="stat-val" id="sOnce">—</div><div class="stat-label">One-off</div></div>
+    <div class="stat-card"><div class="stat-val" id="sNextUp" style="font-size:13px;padding-top:2px">—</div><div class="stat-label">Today</div></div>
+  </div>
+  <div class="filter-bar" id="filterBar">
+    <span class="filter-label">Freq</span>
+    <div class="filter-group">
+      <div class="filter-chip active" data-freq="all" onclick="setFreqFilter('all')">All</div>
+      <div class="filter-chip" data-freq="daily" onclick="setFreqFilter('daily')">Daily</div>
+      <div class="filter-chip" data-freq="weekly" onclick="setFreqFilter('weekly')">Weekly</div>
+      <div class="filter-chip" data-freq="monthly" onclick="setFreqFilter('monthly')">Monthly</div>
+      <div class="filter-chip" data-freq="quarterly" onclick="setFreqFilter('quarterly')">Quarterly</div>
+      <div class="filter-chip" data-freq="once" onclick="setFreqFilter('once')">One-off</div>
+      <div class="filter-chip" data-freq="interval" onclick="setFreqFilter('interval')">Interval</div>
+    </div>
+    <div class="filter-divider"></div>
+    <span class="filter-label">Agent</span>
+    <div class="filter-group" id="agentFilters"></div>
+    <div class="filter-divider"></div>
+    <input class="search-input" id="searchInput" placeholder="Search..." oninput="renderScheduler()">
+  </div>
+  <div class="sched-main" id="schedMain"><div class="sched-empty">Loading...</div></div>
+</div>
+
+<!-- ── MODAL ── -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Cancel this task?</h3>
+    <p>The task will be moved to Cancelled and saved automatically. Clara will be notified via the audit log.</p>
+    <div class="modal-task" id="modalTaskTitle"></div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#333;color:#ccc" onclick="closeModal()">Keep it</button>
+      <button class="btn" style="background:#c0392b;color:#fff" onclick="confirmCancel()">Cancel task</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:8765';
+const SEVEN_DAYS = 7*24*60*60*1000;
+let currentView = 'kanban';
+let boardData = null;
+let auditData = [];
+let schedTasks = [];
+let pendingCancelId = null;
+let activeFreq = 'all';
+let activeAgent = 'all';
+
+// ── View switching ───────────────────────────────────────────────────────────
+function switchView(view) {
+  currentView = view;
+  document.getElementById('viewKanban').classList.toggle('active', view === 'kanban');
+  document.getElementById('viewScheduler').classList.toggle('active', view === 'scheduler');
+  document.getElementById('btnKanban').classList.toggle('active', view === 'kanban');
+  document.getElementById('btnScheduler').classList.toggle('active', view === 'scheduler');
+  document.getElementById('saveBtn').style.display = (view === 'kanban' && boardData) ? 'none' : 'none';
+  refreshCurrent();
+}
+
+function refreshCurrent() {
+  if (currentView === 'kanban') loadKanban();
+  else loadScheduler();
+}
+
+// ── Status helpers ───────────────────────────────────────────────────────────
+function setStatus(cls, html) {
+  const sb = document.getElementById('statusBar');
+  sb.className = 'status-bar ' + cls;
+  sb.innerHTML = html;
+}
+function setUpdated() {
+  document.getElementById('lastUpdated').textContent = 'Refreshed ' + new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+}
+
+// ════════════════════════════════════════════════════════════
+// KANBAN
+// ════════════════════════════════════════════════════════════
+
+const KCOLS = [
+  {key:'todo',label:'To Do',cls:'col-todo'},
+  {key:'in_progress',label:'In Progress',cls:'col-in_progress'},
+  {key:'review',label:'Review',cls:'col-review'},
+  {key:'done',label:'Done',cls:'col-done'},
+  {key:'cancelled',label:'Cancelled',cls:'col-cancelled'},
+];
+const CDOTS = {todo:'#666',in_progress:'#4A9EFF',review:'#FCC127',done:'#4CAF50',cancelled:'#555'};
+
+function normCol(raw) {
+  if (!raw) return 'todo';
+  const s = String(raw).toLowerCase().replace(/[\s\-]+/g,'_');
+  if (['in_progress','inprogress','active','doing'].includes(s)) return 'in_progress';
+  if (['review','awaiting_review','pending'].includes(s)) return 'review';
+  if (['done','complete','completed','closed','finished'].includes(s)) return 'done';
+  if (['cancelled','canceled','removed'].includes(s)) return 'cancelled';
+  return 'todo';
+}
+function within7(ts) { return ts && (Date.now()-new Date(ts).getTime())<=SEVEN_DAYS; }
+function dcls(d) {
+  if (!d) return '';
+  const diff=Math.floor((new Date(d)-Date.now())/86400000);
+  return diff<0?'overdue':diff<=3?'due-soon':'';
+}
+
+async function loadKanban() {
+  setStatus('loading','Loading Kanban board...');
+  try {
+    const r = await fetch(API+'/files/kanban.json');
+    if (!r.ok) throw new Error('kanban.json not found — copy it to Task_Board folder in OneDrive');
+    boardData = await r.json();
+    try { const ar=await fetch(API+'/files/kanban_audit.json'); if(ar.ok) auditData=await ar.json(); } catch{}
+    renderKanban();
+    setStatus('live','&#x2705; Kanban loaded — '+boardData.tasks.length+' tasks');
+    setUpdated();
+  } catch(err) {
+    setStatus('error','&#x26A0;&#xFE0F; '+err.message);
+  }
+}
+
+function renderKanban() {
+  if (!boardData) return;
+  const tasks = boardData.tasks.map(t=>({...t,column:normCol(t.column)}));
+  const board = document.getElementById('board');
+  const summary = document.getElementById('summaryBar');
+  board.innerHTML=''; summary.innerHTML='';
+  KCOLS.forEach(c=>{
+    const cnt = (c.key==='done'||c.key==='cancelled')
+      ? tasks.filter(t=>t.column===c.key&&within7(t.updated_at||t.completed_at||t.cancelled_at)).length
+      : tasks.filter(t=>t.column===c.key).length;
+    const item=document.createElement('div'); item.className='summary-item';
+    item.innerHTML=`<div class="summary-dot" style="background:${CDOTS[c.key]}"></div><span class="summary-count">${cnt}</span><span style="color:#888;font-size:12px">${c.label}</span>`;
+    summary.appendChild(item);
+  });
+  const tot=document.createElement('div'); tot.className='summary-item'; tot.style.marginLeft='auto';
+  tot.innerHTML=`<span style="color:#555;font-size:12px">${tasks.filter(t=>!['done','cancelled'].includes(t.column)).length} active</span>`;
+  summary.appendChild(tot);
+
+  KCOLS.forEach(c=>{
+    const isDone=(c.key==='done'||c.key==='cancelled');
+    const colTasks=isDone
+      ? tasks.filter(t=>t.column===c.key&&within7(t.cancelled_at||t.completed_at||t.updated_at))
+      : tasks.filter(t=>t.column===c.key);
+    const sub=isDone?` <span style="font-size:9px;color:#555;font-weight:400;text-transform:none">7d</span>`:'';
+    const cards=colTasks.length===0
+      ? `<div class="empty-col">No tasks${isDone?' in last 7 days':''}</div>`
+      : colTasks.map(t=>{
+          const dc=dcls(t.due_date);
+          const due=t.due_date?`<span class="due-date ${dc}">${dc==='overdue'?'⚠ ':dc==='due-soon'?'⏰ ':''}${t.due_date}</span>`:'';
+          const tags=(t.tags||[]).map(tg=>`<span class="tag">${tg}</span>`).join('');
+          const del=!isDone?`<button class="delete-btn" onclick="requestCancel('${t.id}')" title="Cancel">✕</button>`:'';
+          return `<div class="card ${t.column}">${del}
+            <div class="card-id">${t.id||''}</div>
+            <div class="card-title">${t.title||'Untitled'}</div>
+            ${t.description?`<div class="card-desc">${t.description}</div>`:''}
+            <div class="card-meta">
+              <span class="agent-badge agent-${t.assignee||''}">${t.assignee||'?'}</span>
+              ${t.priority?`<span class="priority-badge priority-${t.priority}">${t.priority.toUpperCase()}</span>`:''}
+            </div>
+            <div class="card-footer">${tags}${due}</div>
+          </div>`;
+        }).join('');
+    const col=document.createElement('div'); col.className=`column ${c.cls}`;
+    col.innerHTML=`<div class="column-header"><span class="column-title">${c.label}${sub}</span><span class="column-count">${colTasks.length}</span></div><div class="column-body">${cards}</div>`;
+    board.appendChild(col);
+  });
+}
+
+// Cancel flow
+function requestCancel(id) {
+  const t=boardData.tasks.find(t=>t.id===id); if(!t) return;
+  pendingCancelId=id;
+  document.getElementById('modalTaskTitle').textContent=t.title;
+  document.getElementById('modalOverlay').classList.add('visible');
+}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('visible'); pendingCancelId=null; }
+async function confirmCancel() {
+  if (!pendingCancelId) return;
+  const now=new Date().toISOString();
+  const t=boardData.tasks.find(t=>t.id===pendingCancelId);
+  const prev=t?t.column:'unknown';
+  boardData.tasks=boardData.tasks.map(t=>t.id!==pendingCancelId?t:{...t,column:'cancelled',updated_at:now,cancelled_at:now});
+  auditData.push({timestamp:now,event:'cancelled',task_id:pendingCancelId,actor:'David',details:{from:prev,to:'cancelled',note:'Cancelled via Kanban board by David.'}});
+  closeModal(); renderKanban();
+  await saveChanges();
+}
+async function saveChanges() {
+  if (!boardData) return;
+  boardData.generated_at=new Date().toISOString();
+  setStatus('pending','Saving to OneDrive...');
+  try {
+    await fetch(API+'/files/kanban.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(boardData,null,2)});
+    await fetch(API+'/files/kanban_audit.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(auditData,null,2)});
+    setStatus('live','&#x2705; Saved to OneDrive. Clara will see the update on her next session.');
+  } catch(err) { setStatus('error','&#x26A0;&#xFE0F; Save failed: '+err.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// SCHEDULER
+// ════════════════════════════════════════════════════════════
+
+const CRON_MAP = {
+  '0 7 * * 1-5':  {label:'Weekdays 7:00 AM',freq:'daily',freqLabel:'Daily (weekdays)'},
+  '0 7 * * 1':    {label:'Mondays 7:00 AM',freq:'monthly',freqLabel:'Monthly (1st Mon)'},
+  '30 6 * * 1':   {label:'Mondays 6:30 AM',freq:'weekly',freqLabel:'Weekly'},
+  '30 1 * * *':   {label:'Daily 1:30 AM',freq:'daily',freqLabel:'Daily'},
+  '0 0 * * *':    {label:'Daily Midnight',freq:'daily',freqLabel:'Daily'},
+  '30 7 * * 5':   {label:'Fridays 7:30 AM',freq:'weekly',freqLabel:'Weekly (Fri)'},
+};
+const TASK_META = {
+  'clara-morning-briefing':       {name:'Morning Briefing',agent:'Clara',desc:'8-section briefing: calendar, inbox, pipeline, finance, tasks, AI cost, security, focus.'},
+  'knox-overnight-security':      {name:'Overnight Security Check',agent:'Knox',desc:'System health, SSL expiry, credential proxy, M365 calendar, rotation baseline.'},
+  'knox-weekly-pulse':            {name:'Weekly Security Pulse',agent:'Knox',desc:'SSL status, system uptime, security advisories. Full email report + WhatsApp summary.'},
+  'knox-monthly-review':          {name:'Monthly Security Review',agent:'Knox',desc:'Deep review: certificates, credentials, infrastructure, incidents, recommendations.'},
+  'knox-quarterly-reminder':      {name:'Quarterly Security Reminder',agent:'Knox',desc:'Checklist: rotate all credentials, audit access, review container security.'},
+  'knox-whatsapp-health':         {name:'WhatsApp Health Check',agent:'Knox',desc:'Midnight proxy health check — email alert only if proxy is unresponsive.'},
+  'credential-rotation-reminder': {name:'Credential Rotation Reminder',agent:'Clara',desc:'Reminds David to rotate Anthropic API key, HubSpot token, Power BI secret (90-day cycle).'},
+};
+const UUID_MAP = {'b2a2738f-b22b-4ee7-964e-560a7e8af0ef':'friday-inbox-review'};
+const FRIENDLY = {'friday-inbox-review':{name:'Weekly Inbox Review',agent:'Clara',desc:'Reads inbox, identifies unreplied emails, compiles triage summary email every Friday.'}};
+
+function getFreq(t) {
+  const id=UUID_MAP[t.id]||t.id;
+  if(id==='knox-monthly-review') return {freq:'monthly',label:'Monthly (1st Mon)',schedule:'First Monday 7:00 AM'};
+  if(id==='knox-quarterly-reminder') return {freq:'quarterly',label:'Quarterly',schedule:'Quarterly (Mar/Jun/Sep/Dec)'};
+  if(t.schedule_type==='once') return {freq:'once',label:'One-off',schedule:fmtDate(t.schedule_value)};
+  if(t.schedule_type==='interval'){const d=Math.round(parseInt(t.schedule_value)/86400000);return{freq:'interval',label:`Every ${d} days`,schedule:`Every ${d} days`};}
+  if(t.schedule_type==='cron'){const m=CRON_MAP[t.schedule_value];if(m)return{freq:m.freq,label:m.freqLabel,schedule:m.label};}
+  return {freq:'weekly',label:'Scheduled',schedule:t.schedule_value||'—'};
+}
+function getMeta(t) {
+  const id=UUID_MAP[t.id]||t.id;
+  return TASK_META[id]||FRIENDLY[id]||{name:id.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),agent:agentFromFolder(t.group_folder),desc:'Scheduled automated task.'};
+}
+function agentFromFolder(f){const m={whatsapp_main:'Clara',main:'Clara',knox:'Knox',felix:'Felix',scout:'Scout',sterling:'Sterling',atlas:'Atlas',grace:'Grace',sage:'Sage',lex:'Lex',axiom:'Axiom',echo:'Echo'};return m[f]||f;}
+function fmtDate(ts){if(!ts)return'—';const d=new Date(ts);if(isNaN(d))return ts;return d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'short',timeZone:'Australia/Brisbane'});}
+function fmtTime(ts){if(!ts)return'';const d=new Date(ts);if(isNaN(d))return'';return d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane'});}
+function relTime(ts){if(!ts)return'';const diff=new Date(ts)-Date.now();const abs=Math.abs(diff);const f=diff>0;const d=Math.floor(abs/86400000);const h=Math.floor(abs/3600000);const m=Math.floor(abs/60000);if(d>30)return(f?'in ':'')+Math.floor(d/30)+'mo'+(f?'':' ago');if(d>0)return(f?'in ':'')+d+'d'+(f?'':' ago');if(h>0)return(f?'in ':'')+h+'h'+(f?'':' ago');return(f?'in ':'')+m+'m'+(f?'':' ago');}
+
+function setFreqFilter(freq){activeFreq=freq;document.querySelectorAll('[data-freq]').forEach(el=>el.classList.toggle('active',el.dataset.freq===freq));renderScheduler();}
+function setAgentFilter(agent){activeAgent=agent;document.querySelectorAll('[data-agent]').forEach(el=>el.classList.toggle('active',el.dataset.agent===agent));renderScheduler();}
+
+function buildAgentFilters(tasks){
+  const agents=[...new Set(tasks.map(t=>getMeta(t).agent))].sort();
+  const c=document.getElementById('agentFilters');
+  c.innerHTML='<div class="filter-chip active" data-agent="all" onclick="setAgentFilter(\'all\')">All</div>'+
+    agents.map(a=>'<div class="filter-chip" data-agent="'+a+'" onclick="setAgentFilter(\''+a+'\')">'+a+'</div>').join('');
+}
+
+function groupByNext(tasks){
+  const now=Date.now(); const groups={};
+  tasks.forEach(t=>{
+    const next=t.next_run?new Date(t.next_run):null;
+    let key,label;
+    if(!next||isNaN(next)){key='zzz';label='No next run scheduled';}
+    else{const diff=next-now;const d=Math.floor(diff/86400000);
+      if(d<0){key='000';label='Overdue / Running now';}
+      else if(d===0){key='001';label='Today';}
+      else if(d===1){key='002';label='Tomorrow';}
+      else if(d<=7){key='003';label='This week';}
+      else if(d<=14){key='004';label='Next week';}
+      else if(d<=31){key='005';label='This month';}
+      else{key='006';label='Later';}
+    }
+    if(!groups[key])groups[key]={label,tasks:[]};
+    groups[key].tasks.push(t);
+  });
+  return Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>v);
+}
+
+function renderScheduler(){
+  const search=document.getElementById('searchInput').value.toLowerCase();
+  const filtered=schedTasks.filter(t=>{
+    const meta=getMeta(t);const freq=getFreq(t);
+    if(activeFreq!=='all'&&freq.freq!==activeFreq)return false;
+    if(activeAgent!=='all'&&meta.agent!==activeAgent)return false;
+    if(search&&!meta.name.toLowerCase().includes(search)&&!meta.desc.toLowerCase().includes(search)&&!meta.agent.toLowerCase().includes(search))return false;
+    return true;
+  });
+  const main=document.getElementById('schedMain');
+  if(filtered.length===0){main.innerHTML='<div class="sched-empty">No tasks match filters.</div>';return;}
+  const groups=groupByNext(filtered);
+  let html=`<div class="col-headers"><div class="col-hdr">Next Run</div><div class="col-hdr">Frequency</div><div class="col-hdr">Agent</div><div class="col-hdr">Task</div><div class="col-hdr">Last Run</div></div>`;
+  groups.forEach(g=>{
+    html+=`<div class="timeline-section"><div class="section-header"><span class="section-label">${g.label}</span><div class="section-line"></div><span class="section-count">${g.tasks.length} task${g.tasks.length!==1?'s':''}</span></div>`;
+    g.tasks.forEach(t=>{
+      const meta=getMeta(t);const freq=getFreq(t);
+      const next=t.next_run?new Date(t.next_run):null;
+      const last=t.last_run?new Date(t.last_run):null;
+      const result=t.last_result?t.last_result.replace(/<[^>]+>/g,'').substring(0,80)+'...':'';
+      html+=`<div class="task-row freq-${freq.freq}-row">
+        <div class="task-cell cell-time">${next?`<div class="time-date">${fmtDate(t.next_run)}</div><div class="time-clock">${fmtTime(t.next_run)} AEST</div><div class="time-rel">${relTime(t.next_run)}</div>`:'<div class="time-date" style="color:#555">—</div>'}</div>
+        <div class="task-cell"><span class="freq-badge freq-${freq.freq}">${freq.label}</span><div style="font-size:10px;color:#555;margin-top:4px;font-family:monospace">${freq.schedule}</div></div>
+        <div class="task-cell"><span class="agent-badge agent-${meta.agent}">${meta.agent}</span></div>
+        <div class="task-cell cell-desc"><div class="task-name"><span class="status-dot dot-${t.status==='active'?'active':'inactive'}"></span>${meta.name}</div><div class="task-desc">${meta.desc}</div></div>
+        <div class="task-cell cell-lastrun">${last?`<div class="lr-label">Last run</div><div class="lr-val">${fmtDate(t.last_run)} ${fmtTime(t.last_run)}</div>${result?`<div class="lr-result" title="${t.last_result}">${result}</div>`:''}`:'<div class="lr-val lr-never">Never run</div>'}</div>
+      </div>`;
+    });
+    html+='</div>';
+  });
+  main.innerHTML=html;
+}
+
+function updateSchedStats(tasks){
+  const freq=t=>getFreq(t).freq;
+  document.getElementById('sTotal').textContent=tasks.length;
+  document.getElementById('sDaily').textContent=tasks.filter(t=>freq(t)==='daily').length;
+  document.getElementById('sWeekly').textContent=tasks.filter(t=>freq(t)==='weekly').length;
+  document.getElementById('sMonthly').textContent=tasks.filter(t=>['monthly','quarterly'].includes(freq(t))).length;
+  document.getElementById('sOnce').textContent=tasks.filter(t=>['once','interval'].includes(freq(t))).length;
+  const soon=tasks.filter(t=>{if(!t.next_run)return false;const d=new Date(t.next_run)-Date.now();return d>0&&d<86400000;}).length;
+  document.getElementById('sNextUp').textContent=soon+' today';
+}
+
+async function loadScheduler(){
+  setStatus('loading','Loading scheduled tasks...');
+  try{
+    const r=await fetch(API+'/files/tasks.json');
+    if(!r.ok) throw new Error('tasks.json not found');
+    const data=await r.json();
+    schedTasks=(Array.isArray(data)?data:(data.tasks||[])).filter(t=>t.status==='active'||t.status==='scheduled');
+    updateSchedStats(schedTasks);
+    buildAgentFilters(schedTasks);
+    renderScheduler();
+    setStatus('live','&#x2705; '+schedTasks.length+' scheduled tasks loaded');
+    setUpdated();
+  }catch(err){
+    setStatus('error','&#x26A0;&#xFE0F; '+err.message);
+    document.getElementById('schedMain').innerHTML='<div class="sched-empty">Could not load tasks.</div>';
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+(function init(){
+  // Empty kanban columns
+  const board=document.getElementById('board');
+  KCOLS.forEach(c=>{
+    const col=document.createElement('div');col.className=`column ${c.cls}`;
+    col.innerHTML=`<div class="column-header"><span class="column-title">${c.label}</span><span class="column-count">0</span></div><div class="column-body"><div class="empty-col">Loading...</div></div>`;
+    board.appendChild(col);
+  });
+  loadKanban();
+  setInterval(()=>{ if(currentView==='kanban') loadKanban(); else loadScheduler(); },60000);
+})();
+</script>
+</body>
+</html>

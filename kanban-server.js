@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// kanban-server.js — local read/write file server for the TMG Kanban board
+// kanban-server.js — local read/write file server for the TMG AI Workforce dashboard
 //
 // Endpoints:
-//   GET  /                     — serve TMG_Kanban_Board.html
-//   GET  /scheduler            — serve TMG_Scheduler.html
+//   GET  /                     — redirect to /workforce
+//   GET  /workforce            — serve TMG_Workforce.html
 //   GET  /health               — liveness check
 //   GET  /files/:filename      — read a board file (allowlisted)
 //   PUT  /files/:filename      — write a board file (allowlisted, atomic)
@@ -17,11 +17,10 @@ const HOST = '0.0.0.0';
 const BOARD_PATH =
   '/Users/clara/Library/CloudStorage/OneDrive-ThrivingMindsGlobal/' +
   '! TMG Drive - TMG AI Workforce/Task_Board';
-const HTML_FILE           = '/Users/clara/nanoclaw/TMG_Kanban_Board.html';
-const SCHEDULER_HTML_FILE = '/Users/clara/nanoclaw/TMG_Scheduler.html';
+const WORKFORCE_HTML_FILE = '/Users/clara/nanoclaw/TMG_Workforce.html';
 
 // Only these files may be served; only WRITABLE files may be overwritten.
-const READABLE = new Set(['kanban.json', 'kanban_audit.json', 'tasks.json', 'task_audit_log.json', 'TMG_Kanban_Board.html']);
+const READABLE = new Set(['kanban.json', 'kanban_audit.json', 'tasks.json', 'task_audit_log.json']);
 const WRITABLE  = new Set(['kanban.json', 'kanban_audit.json']);
 
 function send(res, status, body) {
@@ -31,7 +30,7 @@ function send(res, status, body) {
 }
 
 const server = http.createServer((req, res) => {
-  const url  = new URL(req.url, `http://${HOST}`);
+  const url    = new URL(req.url, `http://${HOST}`);
   const method = req.method.toUpperCase();
 
   // OPTIONS — preflight
@@ -44,21 +43,16 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  // GET / — serve the Kanban board HTML
+  // GET / — redirect to /workforce
   if (method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
-    try {
-      const html = fs.readFileSync(HTML_FILE, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(html);
-    } catch (err) {
-      return send(res, err.code === 'ENOENT' ? 404 : 500, { error: err.message });
-    }
+    res.writeHead(302, { Location: '/workforce' });
+    return res.end();
   }
 
-  // GET /scheduler — serve the Scheduler HTML
-  if (method === 'GET' && url.pathname === '/scheduler') {
+  // GET /workforce — serve the Workforce dashboard HTML
+  if (method === 'GET' && url.pathname === '/workforce') {
     try {
-      const html = fs.readFileSync(SCHEDULER_HTML_FILE, 'utf8');
+      const html = fs.readFileSync(WORKFORCE_HTML_FILE, 'utf8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch (err) {
